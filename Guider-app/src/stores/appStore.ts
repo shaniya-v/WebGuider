@@ -18,7 +18,7 @@ export const useAppStore = create<AppState>((set) => {
   loadModelPreference();
 
   return {
-    mode: 'learn',
+    mode: 'explore',
     theme: 'system',
     sidebarOpen: true,
     preferences: {
@@ -29,7 +29,7 @@ export const useAppStore = create<AppState>((set) => {
     },
 
     setMode: (mode) => set({ mode }),
-    toggleMode: () => set((s) => ({ mode: s.mode === 'learn' ? 'explore' : 'learn' })),
+    toggleMode: () => set((s) => ({ mode: s.mode === 'tutor' ? 'explore' : 'tutor' })),
 
     setTheme: (theme) => set({ theme }),
 

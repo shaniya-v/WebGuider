@@ -14,11 +14,11 @@ export default defineConfig({
       'activeTab',
       'scripting',
       'notifications',
+      'sidePanel',
     ],
     host_permissions: ['<all_urls>'],
     action: {
       default_title: 'Web-Guider',
-      default_popup: 'popup.html',
     },
     icons: {
       16: '/icons/icon-16.png',

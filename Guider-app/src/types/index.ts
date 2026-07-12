@@ -1,4 +1,4 @@
-export type Mode = 'learn' | 'explore';
+export type Mode = 'tutor' | 'explore';
 
 export interface Message {
   id: string;

@@ -1,7 +1,7 @@
 import type { ExploreStep } from '../types';
 
 interface SessionState {
-  mode: 'learn' | 'explore' | null;
+  mode: 'tutor' | 'explore' | null;
   active: boolean;
   currentSteps: ExploreStep[];
   currentStepIndex: number;
@@ -11,6 +11,12 @@ interface SessionState {
 export default defineBackground({
   main() {
     console.log('[Web-Guider] Background service worker loaded');
+
+    browser.sidePanel.setPanelBehavior({ openPanelOnActionClick: true }).catch(() => {
+      browser.action.onClicked.addListener(async (tab) => {
+        await browser.sidePanel.open({ tabId: tab.id! });
+      });
+    });
 
     const state: SessionState = {
       mode: null,
