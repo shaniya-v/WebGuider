@@ -1,10 +1,11 @@
 import { useSidebarStore } from '../stores/sidebarStore';
+import { askAI } from '../../../lib/ai';
 
 export function BottomInput() {
   const { mode, inputValue, isLoading, setInputValue, addMessage, setLoading } =
     useSidebarStore();
 
-  const handleSend = () => {
+  const handleSend = async () => {
     if (!inputValue.trim() || isLoading) return;
 
     if (mode === 'tutor') {
@@ -12,24 +13,9 @@ export function BottomInput() {
       addMessage('user', text);
       setLoading(true);
       setInputValue('');
-
-      setTimeout(() => {
-        addMessage(
-          'assistant',
-          `Great question about **${text}**! Let me explain...
-
-Here's what you need to know:
-
-1. **Core Concept** — This is a fundamental topic in modern development
-2. **Key Benefits** — Improved productivity and better results
-3. **Getting Started** — Practice with small examples first
-
-> *"Continuous learning is the key to mastery."*
-
-Would you like me to go deeper into this topic?`
-        );
-        setLoading(false);
-      }, 2000);
+      const response = await askAI(text);
+      addMessage('assistant', response);
+      setLoading(false);
     } else {
       browser.runtime.sendMessage({
         type: 'EXPLORE_QUERY',

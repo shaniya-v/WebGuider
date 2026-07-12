@@ -152,5 +152,11 @@ export default defineBackground({
     browser.tabs.onActivated.addListener((activeInfo) => {
       state.currentTabId = activeInfo.tabId;
     });
+
+    browser.action.onClicked.addListener(async (tab) => {
+      if (tab.id) {
+        await browser.sidePanel.open({ tabId: tab.id });
+      }
+    });
   },
 });

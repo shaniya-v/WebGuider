@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useSidebarStore } from '../stores/sidebarStore';
+import { api } from '../../../lib/api'
 
 function TypingDots() {
   return (
@@ -21,27 +22,39 @@ export function ChatArea() {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, isLoading]);
 
-  const handleSuggestion = (text: string) => {
+  const getResponse = async (query: string) => {
+    try {
+      const res = await api.learn.ask(query, []);
+      return res.content;
+    } catch {
+      const q = query.toLowerCase().trim();
+      const topics: Record<string, string> = {
+        'ai|artificial intelligence|machine learning|ml|deep learning': '**Artificial Intelligence (AI)** simulates human intelligence in machines. It enables computers to learn from data, recognize patterns, and make decisions.\n\n### Key Areas\n- Machine Learning, NLP, Computer Vision, Generative AI\n\n### Free Resources\n• [Google AI](https://ai.google) • [Fast.ai](https://www.fast.ai) • [DeepLearning.AI](https://www.deeplearning.ai)',
+        'react|reactjs': '**React** is a JavaScript library for building user interfaces, developed by Meta. It uses a component-based architecture and a virtual DOM for efficient updates.\n\n### Key Concepts\n- Components, State, Props, Hooks, JSX\n\n### Free Resources\n• [React Docs](https://react.dev) • [Next.js Docs](https://nextjs.org/docs) • [Scrimba React](https://scrimba.com/learn/learnreact)',
+        'docker|container': '**Docker** packages applications into lightweight, portable containers that run consistently anywhere.\n\n### Key Concepts\n- Images, Containers, Dockerfile, Docker Compose\n\n### Free Resources\n• [Docker Docs](https://docs.docker.com) • [Play with Docker](https://labs.play-with-docker.com)',
+        'kubernetes|k8s': '**Kubernetes** automates deployment, scaling, and management of containerized applications across clusters.\n\n### Key Concepts\n- Pods, Services, Deployments, ConfigMaps, Ingress\n\n### Free Resources\n• [K8s Docs](https://kubernetes.io/docs) • [Play with K8s](https://labs.play-with-k8s.com)',
+        'git|github|version control': '**Git** is a distributed version control system that tracks changes in source code and enables collaboration.\n\n### Key Concepts\n- Branching, Merging, Commits, Remotes\n\n### Free Resources\n• [Git SCM](https://git-scm.com/doc) • [Learn Git Branching](https://learngitbranching.js.org)',
+        'python': '**Python** is a high-level, interpreted language known for readability and versatility, used in web dev, data science, and AI.\n\n### Free Resources\n• [Python Docs](https://docs.python.org/3/) • [Real Python](https://realpython.com)',
+        'typescript|ts': '**TypeScript** is a typed superset of JavaScript that adds static typing to catch errors at compile time.\n\n### Free Resources\n• [TypeScript Docs](https://www.typescriptlang.org/docs) • [Total TypeScript](https://www.totaltypescript.com)',
+        'azure|cloud': '**Microsoft Azure** is a cloud platform offering VMs, databases, AI services, and serverless computing.\n\n### Free Resources\n• [Microsoft Learn Azure](https://learn.microsoft.com/azure) • [Azure Free Account](https://azure.microsoft.com/free)',
+      };
+      for (const [pattern, response] of Object.entries(topics)) {
+        const regex = new RegExp('\\b(' + pattern.split('|').join('|') + ')\\b', 'i');
+        if (regex.test(q)) {
+          return response + '\n\n> Want to go deeper? Ask for more details or request a quiz!';
+        }
+      }
+      return `**${query}**\n\nHere's a learning approach:\n1. **Start with fundamentals** – Learn core concepts first\n2. **Practice** – Build small projects\n3. **Use free resources** – Docs, tutorials, YouTube, GitHub\n4. **Test yourself** – Explain to others, take quizzes\n\nWould you like me to provide specific examples or resources?`;
+    }
+  };
+
+  const handleSuggestion = async (text: string) => {
     setInputValue(text);
     addMessage('user', text);
     setLoading(true);
-    setTimeout(() => {
-      addMessage(
-        'assistant',
-        `Great question about **${text}**! Let me explain...
-
-This is a fundamental concept in modern software development. Here's what you need to know:
-
-1. **Core Concept** — It's a way to build and manage applications efficiently
-2. **Key Benefits** — Scalability, maintainability, and developer productivity
-3. **Best Practices** — Start small, iterate often, and use the right tools
-
-> *"The best way to learn is by doing."*
-
-Would you like me to dive deeper into any specific aspect?`
-      );
-      setLoading(false);
-    }, 2000);
+    const response = await getResponse(text);
+    addMessage('assistant', response);
+    setLoading(false);
   };
 
   return (
