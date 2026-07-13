@@ -2,7 +2,8 @@ import { FastifyInstance } from 'fastify';
 import type { UserPreferences } from '../types/index.js';
 
 export async function authRoutes(app: FastifyInstance) {
-  app.get('/api/auth/profile', async (_request, reply) => {
+  app.get('/api/auth/profile', async (request, reply) => {
+    request.log.info('Fetching user profile');
     // In production, fetch from Supabase
     return reply.send({
       profile: {
@@ -19,6 +20,7 @@ export async function authRoutes(app: FastifyInstance) {
 
   app.put('/api/auth/preferences', async (request, reply) => {
     const preferences = request.body as Partial<UserPreferences>;
+    request.log.info({ preferences }, 'Updating user preferences');
 
     // In production, save to Supabase
     return reply.send({

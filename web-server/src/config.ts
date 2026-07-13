@@ -11,12 +11,10 @@ export const config = {
     serviceKey: process.env.SUPABASE_SERVICE_KEY || '',
   },
 
-  openrouter: {
-    apiKey: process.env.OPENROUTER_API_KEY || '',
-    baseUrl: process.env.OPENROUTER_BASE_URL || 'https://openrouter.ai/api/v1',
-  },
-
   ai: {
-    defaultModel: process.env.AI_MODEL || 'gpt-4',
+    apiKey: process.env.AI_API_KEY || '',
+    baseUrl: process.env.AI_BASE_URL || 'https://api.x.ai/v1',
+    defaultModel: process.env.AI_MODEL || 'grok-4.5',
+    exploreModel: process.env.AI_EXPLORE_MODEL || 'grok-build-0.1',
   },
 };

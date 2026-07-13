@@ -29,11 +29,66 @@ export interface QuizQuestion {
 export interface ExploreRequest {
   goal: string;
   url: string;
+  pageContext?: PageContext;
+}
+
+export interface PageContext {
+  url: string;
+  title: string;
+  domain: string;
+  buttons: PageButton[];
+  inputs: PageInput[];
+  links: PageLink[];
+  forms: PageForm[];
+  dialogs: PageDialog[];
+  visibleText: string;
+  pagePurpose: string;
+  activeWorkflow: string;
+  successMessages: string[];
+  errorMessages: string[];
+  validationMessages: string[];
+}
+
+export interface PageButton {
+  text: string;
+  selector: string;
+  visible: boolean;
+}
+
+export interface PageInput {
+  type: string;
+  name: string;
+  placeholder: string;
+  label: string;
+  selector: string;
+  required: boolean;
+  visible: boolean;
+}
+
+export interface PageLink {
+  text: string;
+  href: string;
+  selector: string;
+  visible: boolean;
+}
+
+export interface PageForm {
+  action: string;
+  method: string;
+  fields: number;
+  submitText: string;
+  selector: string;
+}
+
+export interface PageDialog {
+  text: string;
+  selector: string;
 }
 
 export interface ExploreStep {
   id: string;
   instruction: string;
+  reasoning?: string;
   selector: string;
   action: 'click' | 'input' | 'wait' | 'navigate' | 'highlight';
   value?: string;
@@ -59,6 +114,19 @@ export interface StepResponse {
   nextStep?: ExploreStep;
   completed: boolean;
   session?: ExploreSession;
+}
+
+export interface ExploreChatRequest {
+  goal: string;
+  url: string;
+  pageContext?: PageContext;
+  question: string;
+  steps: ExploreStep[];
+  currentStep?: number;
+}
+
+export interface ExploreChatResponse {
+  answer: string;
 }
 
 export interface DomAnalysis {

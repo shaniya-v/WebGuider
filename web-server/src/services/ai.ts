@@ -1,11 +1,23 @@
 import OpenAI from 'openai';
 import { config } from '../config.js';
-import type { AskResponse, QuizQuestion, ResourceResult } from '../types/index.js';
+import type { AskResponse, QuizQuestion, ResourceResult, PageContext, ExploreStep } from '../types/index.js';
+import type { FastifyBaseLogger } from 'fastify';
 
 const openai = new OpenAI({
-  baseURL: config.openrouter.baseUrl,
-  apiKey: config.openrouter.apiKey,
+  baseURL: config.ai.baseUrl,
+  apiKey: config.ai.apiKey,
 });
+
+const noopLogger: FastifyBaseLogger = {
+  info: () => {},
+  warn: () => {},
+  error: () => {},
+  fatal: () => {},
+  trace: () => {},
+  debug: () => {},
+  child: () => noopLogger,
+  level: 'silent',
+} as unknown as FastifyBaseLogger;
 
 const SYSTEM_PROMPT = `You are Web-Guider, an AI tutor that helps users learn technology concepts. 
 
@@ -28,7 +40,8 @@ Structure your responses with markdown formatting for readability.`;
 export async function askQuestion(
   query: string,
   history: string[] = [],
-  model?: string
+  model?: string,
+  log: FastifyBaseLogger = noopLogger
 ): Promise<AskResponse> {
   const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
     { role: 'system', content: SYSTEM_PROMPT },
@@ -37,6 +50,7 @@ export async function askQuestion(
   ];
 
   try {
+    log.info({ model: model || config.ai.defaultModel, queryLength: query.length }, 'Calling AI API');
     const completion = await openai.chat.completions.create({
       model: model || config.ai.defaultModel,
       messages,
@@ -45,6 +59,7 @@ export async function askQuestion(
     });
 
     const content = completion.choices[0]?.message?.content || 'I could not process that question. Please try again.';
+    log.info({ responseLength: content.length, model: model || config.ai.defaultModel }, 'AI API response received');
 
     const response: AskResponse = { content };
 
@@ -56,7 +71,10 @@ export async function askQuestion(
 
     return response;
   } catch (error) {
-    console.error('[AI Service] Error:', error);
+    log.error(
+      { err: error, query, model: model || config.ai.defaultModel },
+      'AI API call failed, using fallback response'
+    );
     return {
       content: generateFallbackResponse(query),
       resources: getRelevantResources(query),
@@ -64,56 +82,194 @@ export async function askQuestion(
   }
 }
 
+export interface ExploreStepsResult {
+  steps: ExploreStep[];
+  summary: string;
+}
+
 export async function generateExploreSteps(
   goal: string,
-  url: string
-): Promise<import('../types/index.js').ExploreStep[]> {
+  url: string,
+  pageContext?: PageContext,
+  log: FastifyBaseLogger = noopLogger
+): Promise<ExploreStepsResult> {
+  const pageDescription = pageContext ? buildPageDescription(pageContext) : 'No page context available.';
+
   const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
     {
       role: 'system',
-      content: `You are a web navigation guide. Given a user's goal and a website URL, generate step-by-step instructions for the user to accomplish their goal.
+      content: `You are a web navigation guide. Analyze this webpage and generate step-by-step instructions for the user to accomplish their goal.
 
-For each step, provide:
-1. A clear, concise instruction
-2. A CSS selector for the element (can be approximate)
-3. The action type: click, input, wait, navigate, or highlight
-4. Optional: a value to input
-
-Respond with a JSON array of steps.`,
+RULES:
+- First check if the goal is ALREADY accomplished (success messages on page, confirmation shown, form submitted, item in cart, etc.). If done, respond: {"completed":true,"summary":"Explain why it's done","steps":[]}
+- Use ONLY elements that exist in the page context below
+- Each step needs a CSS selector from the page elements
+- Actions: click (buttons/links), input (form fields), wait (for page changes), navigate (to URL), highlight (info)
+- For input steps, include the value when possible
+- Handle dynamic scenarios: clicking may open a modal (e.g., sign-in prompt on "add to cart")
+- Each step must have a "reasoning" field explaining WHY this step is needed and what to expect
+- Include an overall "summary" field describing the full plan
+- Keep instructions short and actionable
+- Respond JSON: {"completed":false,"summary":"Overall plan description","steps":[{"instruction":"...","reasoning":"Why this step is needed","selector":"...","action":"click|input|wait|navigate|highlight","value":"..."}]}`,
     },
     {
       role: 'user',
-      content: `Goal: ${goal}\nWebsite: ${url}`,
+      content: `Goal: ${goal}
+URL: ${url}
+
+Page:
+${pageDescription}
+
+Generate steps using ONLY the elements listed above. First determine if the goal is already completed.`,
     },
   ];
 
-  try {
-    const completion = await openai.chat.completions.create({
-      model: config.ai.defaultModel,
-      messages,
-      temperature: 0.3,
-      response_format: { type: 'json_object' },
-    });
+  log.info({ goal, url, hasPageContext: !!pageContext }, 'Generating explore steps via AI');
+  const completion = await openai.chat.completions.create({
+    model: config.ai.exploreModel,
+    messages,
+    temperature: 0.2,
+    max_tokens: 1024,
+    response_format: { type: 'json_object' },
+  });
 
-    const content = completion.choices[0]?.message?.content;
-    if (content) {
+  const content = completion.choices[0]?.message?.content?.trim();
+  log.info({ contentLength: content?.length, finishReason: completion.choices[0]?.finish_reason }, 'Raw AI response');
+
+  if (content) {
+    try {
       const parsed = JSON.parse(content);
-      if (parsed.steps && Array.isArray(parsed.steps)) {
-        return parsed.steps.map((step: Record<string, string>, i: number) => ({
+      if (parsed.completed) {
+        log.info({ summary: parsed.summary }, 'Goal already completed per AI');
+        return { steps: [], summary: parsed.summary || 'Goal accomplished' };
+      }
+      if (parsed.steps && Array.isArray(parsed.steps) && parsed.steps.length > 0) {
+        const summary = parsed.summary || parsed.steps[0]?.reasoning || '';
+        log.info({ stepCount: parsed.steps.length, summary }, 'Explore steps generated');
+        const steps = parsed.steps.map((step: Record<string, string>, i: number) => ({
           id: `step-${i + 1}`,
           instruction: step.instruction,
+          reasoning: step.reasoning || '',
           selector: step.selector || 'body',
-          action: (step.action as import('../types/index.js').ExploreStep['action']) || 'highlight',
+          action: (step.action as ExploreStep['action']) || 'highlight',
           value: step.value,
           optional: step.optional === 'true',
         }));
+        return { steps, summary };
       }
+      log.warn({ parsed }, 'AI response did not contain valid steps array');
+    } catch (parseErr) {
+      log.error({ parseErr, content: content.slice(0, 500) }, 'Failed to parse AI JSON response');
     }
-  } catch (error) {
-    console.error('[AI Service] Error generating steps:', error);
   }
 
-  return generateFallbackSteps(goal);
+  throw new Error('AI returned no valid steps');
+}
+
+export async function exploreChat(
+  goal: string,
+  url: string,
+  question: string,
+  steps: ExploreStep[],
+  currentStep?: number,
+  pageContext?: PageContext,
+  log: FastifyBaseLogger = noopLogger
+): Promise<string> {
+  const stepList = steps.map((s, i) => `${i + 1}. [${s.action}] ${s.instruction}${i === currentStep ? ' ← YOU ARE HERE' : ''}`).join('\n');
+  const pageDescription = pageContext ? buildPageDescription(pageContext) : 'No page context.';
+
+  const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
+    {
+      role: 'system',
+      content: `You are a helpful guide inside a web exploration session. The user is following steps to accomplish a goal on a website. Answer their doubt about the current task concisely and helpfully.
+
+Keep answers short (2-4 sentences). Be practical and specific to their current step and goal. If they ask something unrelated, gently redirect to the current task.`,
+    },
+    {
+      role: 'user',
+      content: `Goal: ${goal}
+URL: ${url}
+
+Current plan:
+${stepList}
+
+Page context:
+${pageDescription}
+
+User's doubt: ${question}
+
+Answer concisely (2-4 sentences) about this specific task.`,
+    },
+  ];
+
+  log.info({ goal, question }, 'Generating explore chat answer');
+  const completion = await openai.chat.completions.create({
+    model: config.ai.exploreModel,
+    messages,
+    temperature: 0.3,
+    max_tokens: 300,
+  });
+
+  return completion.choices[0]?.message?.content?.trim() || 'I could not find an answer. Please try rephrasing your question.';
+}
+
+function buildPageDescription(ctx: PageContext): string {
+  const parts: string[] = [];
+  parts.push(`Page: "${ctx.title}" (${ctx.url})`);
+  parts.push(`Domain: ${ctx.domain}`);
+  parts.push(`Purpose: ${ctx.pagePurpose || 'Unknown'}`);
+  parts.push(`Workflow: ${ctx.activeWorkflow || 'Unknown'}`);
+
+  if (ctx.visibleText) {
+    parts.push(`\nPage text: "${ctx.visibleText.slice(0, 1000)}"`);
+  }
+
+  if (ctx.buttons.length > 0) {
+    parts.push(`\nButtons (${ctx.buttons.length}):`);
+    ctx.buttons.filter(b => b.visible).slice(0, 30).forEach(b => {
+      parts.push(`  - "${b.text}" → selector: ${b.selector}`);
+    });
+  }
+
+  if (ctx.inputs.length > 0) {
+    parts.push(`\nInputs (${ctx.inputs.length}):`);
+    ctx.inputs.filter(i => i.visible).slice(0, 20).forEach(i => {
+      parts.push(`  - type=${i.type} name="${i.name}" placeholder="${i.placeholder}" label="${i.label}" selector=${i.selector} required=${i.required}`);
+    });
+  }
+
+  if (ctx.links.length > 0) {
+    parts.push(`\nLinks (${ctx.links.length}):`);
+    ctx.links.filter(l => l.visible).slice(0, 20).forEach(l => {
+      parts.push(`  - "${l.text}" → ${l.href} selector: ${l.selector}`);
+    });
+  }
+
+  if (ctx.forms.length > 0) {
+    parts.push(`\nForms (${ctx.forms.length}):`);
+    ctx.forms.slice(0, 5).forEach(f => {
+      parts.push(`  - action="${f.action}" method=${f.method} fields=${f.fields} submit="${f.submitText}" selector=${f.selector}`);
+    });
+  }
+
+  if (ctx.dialogs.length > 0) {
+    parts.push(`\nDialogs/Modals (${ctx.dialogs.length}):`);
+    ctx.dialogs.slice(0, 5).forEach(d => {
+      parts.push(`  - "${d.text.slice(0, 100)}" selector=${d.selector}`);
+    });
+  }
+
+  if (ctx.errorMessages.length > 0) {
+    parts.push(`\nError messages: ${ctx.errorMessages.join(' | ')}`);
+  }
+  if (ctx.successMessages.length > 0) {
+    parts.push(`\nSuccess messages: ${ctx.successMessages.join(' | ')}`);
+  }
+  if (ctx.validationMessages.length > 0) {
+    parts.push(`\nValidation messages: ${ctx.validationMessages.join(' | ')}`);
+  }
+
+  return parts.join('\n');
 }
 
 function generateMockQuiz(topic: string): QuizQuestion[] {

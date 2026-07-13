@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { Mode, RichExplorerResponse, HighlightTarget, ConfirmHighlightResult } from '../../../types';
+import type { Mode, RichExplorerResponse, HighlightTarget, ConfirmHighlightResult, ExploreStep } from '../../../types';
 import { classifyIntent, getConversationResponse, getUnclearResponse } from '../../../lib/intentClassifier';
 
 export interface ChatMessage {
@@ -38,6 +38,12 @@ interface SidebarState {
   highlightTarget: HighlightTarget | null;
   highlightConfirmed: boolean;
   successMessage: string;
+  exploreSteps: ExploreStep[];
+  currentStepIndex: number;
+
+  exploreChatOpen: boolean;
+  exploreChatMessages: ChatMessage[];
+  exploreChatLoading: boolean;
 
   lastIntent: IntentType;
   lastIntentConfidence: number;
@@ -55,6 +61,8 @@ interface SidebarState {
   analyzeCurrentPage: () => Promise<void>;
   resetExploration: () => void;
   triggerHighlight: () => void;
+  toggleExploreChat: () => void;
+  askExploreDoubt: (question: string) => Promise<void>;
 }
 
 function generateId(): string {
@@ -82,6 +90,12 @@ export const useSidebarStore = create<SidebarState>((set, get) => ({
   highlightTarget: null,
   highlightConfirmed: false,
   successMessage: '',
+  exploreSteps: [],
+  currentStepIndex: 0,
+
+  exploreChatOpen: false,
+  exploreChatMessages: [],
+  exploreChatLoading: false,
 
   lastIntent: null,
   lastIntentConfidence: 0,
@@ -98,6 +112,31 @@ export const useSidebarStore = create<SidebarState>((set, get) => ({
 
   setLoading: (loading) => set({ isLoading: loading }),
   setGoal: (goal) => set({ goal }),
+  toggleExploreChat: () => set((s) => ({ exploreChatOpen: !s.exploreChatOpen })),
+
+  askExploreDoubt: async (question: string) => {
+    const { goal, exploreSteps, currentStepIndex, pageUrl } = get();
+    if (!question.trim()) return;
+
+    const userMsg: ChatMessage = { id: generateId(), role: 'user', content: question, timestamp: Date.now() };
+    set((s) => ({ exploreChatMessages: [...s.exploreChatMessages, userMsg], exploreChatLoading: true }));
+
+    try {
+      const resp: { answer: string } = await browser.runtime.sendMessage({
+        type: 'EXPLORE_QUERY',
+        goal,
+        query: question,
+        steps: exploreSteps,
+        currentStep: currentStepIndex,
+      });
+      const assistantMsg: ChatMessage = { id: generateId(), role: 'assistant', content: resp.answer || 'No answer available.', timestamp: Date.now() };
+      set((s) => ({ exploreChatMessages: [...s.exploreChatMessages, assistantMsg], exploreChatLoading: false }));
+    } catch (err) {
+      console.error('[WebGuider] askExploreDoubt error:', err);
+      const errorMsg: ChatMessage = { id: generateId(), role: 'assistant', content: 'Sorry, I could not answer that right now.', timestamp: Date.now() };
+      set((s) => ({ exploreChatMessages: [...s.exploreChatMessages, errorMsg], exploreChatLoading: false }));
+    }
+  },
 
   submitUserInput: async () => {
     const { goal } = get();
@@ -150,11 +189,14 @@ export const useSidebarStore = create<SidebarState>((set, get) => ({
         return;
       }
 
+      const steps = (result as any).steps || [];
       set({
         explorerStatus: result.completed ? 'completed' : 'waiting',
         currentInstruction: result.instruction,
         pageSummary: result.pageSummary,
         details: result.details,
+        exploreSteps: steps,
+        currentStepIndex: 0,
         highlightTarget: result.highlightTarget,
         highlightConfirmed: result.highlightConfirmed || false,
         successMessage: result.successMessage,
@@ -162,7 +204,9 @@ export const useSidebarStore = create<SidebarState>((set, get) => ({
         confidence: result.confidence,
         currentPageTitle: (result as any).currentPage || '',
         pageUrl: result.expectedNextPage || '',
-        completedSteps: [{ instruction: result.instruction, completed: false }],
+        completedSteps: steps.length > 0
+          ? steps.map((s: any, i: number) => ({ instruction: s.instruction, completed: i === 0 ? false : false }))
+          : [{ instruction: result.instruction, completed: false }],
       });
 
       if (result.highlightTarget) {
@@ -218,17 +262,20 @@ export const useSidebarStore = create<SidebarState>((set, get) => ({
           details: result.details,
           highlightTarget: null,
           highlightConfirmed: false,
-          successMessage: result.successMessage,
+          successMessage: result.successMessage || 'Goal accomplished!',
           aiReasoning: result.currentStage || '',
           confidence: result.confidence,
           currentPageTitle: (result as any).currentPage || '',
-          completedSteps: [...allSteps, { instruction: result.instruction, completed: true }],
+          completedSteps: allSteps.map((s) => ({ ...s, completed: true })),
         });
         return;
       }
 
-      const newSteps = [...allSteps];
-      if (!newSteps.find((s) => s.instruction === result.instruction)) {
+      const steps = (result as any).steps || [];
+      const newSteps = steps.length > 0
+        ? steps.map((s: any) => ({ instruction: s.instruction, completed: false }))
+        : [...allSteps];
+      if (newSteps.length === 0 && !newSteps.find((s) => s.instruction === result.instruction)) {
         newSteps.push({ instruction: result.instruction, completed: false });
       }
 
@@ -237,6 +284,8 @@ export const useSidebarStore = create<SidebarState>((set, get) => ({
         currentInstruction: result.instruction,
         pageSummary: result.pageSummary,
         details: result.details,
+        exploreSteps: steps,
+        currentStepIndex: 0,
         highlightTarget: result.highlightTarget,
         highlightConfirmed: result.highlightConfirmed || false,
         successMessage: result.successMessage,
@@ -274,6 +323,11 @@ export const useSidebarStore = create<SidebarState>((set, get) => ({
       highlightTarget: null,
       highlightConfirmed: false,
       successMessage: '',
+      exploreSteps: [],
+      currentStepIndex: 0,
+      exploreChatOpen: false,
+      exploreChatMessages: [],
+      exploreChatLoading: false,
       lastIntent: null,
       lastIntentConfidence: 0,
     });

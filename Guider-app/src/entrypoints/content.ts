@@ -287,6 +287,9 @@ export default defineContentScript({
         }
       });
       document.querySelectorAll<HTMLInputElement>('input:invalid, textarea:invalid, select:invalid').forEach((el) => {
+        const validity = el.validity;
+        if (validity.valid) return;
+        if (validity.valueMissing && !validity.patternMismatch && !validity.typeMismatch && !validity.tooLong && !validity.tooShort && !validity.rangeOverflow && !validity.rangeUnderflow && !validity.stepMismatch && !validity.badInput && !validity.customError) return;
         const label = getLabel(el);
         const validationMsg = el.validationMessage;
         if (validationMsg) {

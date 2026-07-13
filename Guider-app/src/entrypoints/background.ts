@@ -1,5 +1,13 @@
 import type { ExploreStep } from '../types';
-import { analyzePageForGoal, resetTaskMemory, getCompletedSteps, confirmHighlight } from '../lib/explorerEngine';
+import { resetTaskMemory, getCompletedSteps, confirmHighlight } from '../lib/explorerEngine';
+
+function getApiBase(): string {
+  try {
+    return (import.meta as any).env?.VITE_API_URL || 'http://localhost:3001/api';
+  } catch {
+    return 'http://localhost:3001/api';
+  }
+}
 
 interface SessionState {
   mode: 'tutor' | 'explore' | null;
@@ -10,9 +18,125 @@ interface SessionState {
 }
 
 const readyTabs = new Set<number>();
+const lastAnalysisCache = new Map<string, { url: string; hash: string; timestamp: number }>();
+const responseCache = new Map<string, any>();
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function simpleHash(obj: any): string {
+  const str = JSON.stringify(obj);
+  let hash = 0;
+  for (let i = 0; i < str.length; i++) {
+    const char = str.charCodeAt(i);
+    hash = ((hash << 5) - hash) + char;
+    hash |= 0;
+  }
+  return String(hash);
+}
+
+function shouldReAnalyze(goal: string, url: string, pageData: any): boolean {
+  const key = `${goal}::${url}`;
+  const cached = lastAnalysisCache.get(key);
+  const now = Date.now();
+  if (!cached) return true;
+  if (cached.url !== url) return true;
+  if (now - cached.timestamp < 5000) return false;
+  const btnHash = simpleHash((pageData.buttons || []).map((b: any) => b.text + b.visible));
+  const inputHash = simpleHash((pageData.inputs || []).map((i: any) => i.name + i.placeholder + i.visible));
+  const dialogHash = simpleHash((pageData.dialogs || []).map((d: any) => d.text));
+  const newHash = `${btnHash}:${inputHash}:${dialogHash}:${pageData.url}`;
+  if (cached.hash === newHash) return false;
+  lastAnalysisCache.set(key, { url, hash: newHash, timestamp: now });
+  return true;
+}
+
+function updateAnalysisCache(goal: string, url: string, pageData: any) {
+  const key = `${goal}::${url}`;
+  const btnHash = simpleHash((pageData.buttons || []).map((b: any) => b.text + b.visible));
+  const inputHash = simpleHash((pageData.inputs || []).map((i: any) => i.name + i.placeholder + i.visible));
+  const dialogHash = simpleHash((pageData.dialogs || []).map((d: any) => d.text));
+  const hash = `${btnHash}:${inputHash}:${dialogHash}:${pageData.url}`;
+  lastAnalysisCache.set(key, { url, hash, timestamp: Date.now() });
+}
+
+interface SimplePageContext {
+  url: string;
+  title: string;
+  domain: string;
+  buttons: { text: string; selector: string; visible: boolean }[];
+  inputs: { type: string; name: string; placeholder: string; label: string; selector: string; required: boolean; visible: boolean }[];
+  links: { text: string; href: string; selector: string; visible: boolean }[];
+  forms: { action: string; method: string; fields: number; submitText: string; selector: string }[];
+  dialogs: { text: string; selector: string }[];
+  visibleText: string;
+  pagePurpose: string;
+  activeWorkflow: string;
+  successMessages: string[];
+  errorMessages: string[];
+  validationMessages: string[];
+}
+
+function buildPageContextFromAnalysis(pageData: any): SimplePageContext {
+  return {
+    url: pageData.url || '',
+    title: pageData.title || '',
+    domain: pageData.domain || '',
+    buttons: (pageData.buttons || []).map((b: any) => ({ text: b.text, selector: b.selector, visible: b.visible })),
+    inputs: (pageData.inputs || []).map((i: any) => ({ type: i.type, name: i.name, placeholder: i.placeholder, label: i.label, selector: i.selector, required: i.required, visible: i.visible })),
+    links: (pageData.links || []).map((l: any) => ({ text: l.text, href: l.href, selector: l.selector, visible: l.visible })),
+    forms: (pageData.forms || []).map((f: any) => ({ action: f.action, method: f.method, fields: f.fields, submitText: f.submitText, selector: f.selector })),
+    dialogs: (pageData.dialogs || []).map((d: any) => ({ text: d.text, selector: d.selector })),
+    visibleText: pageData.visibleText || '',
+    pagePurpose: pageData.pagePurpose || '',
+    activeWorkflow: pageData.activeWorkflow || '',
+    successMessages: pageData.successMessages || [],
+    errorMessages: pageData.errorMessages || [],
+    validationMessages: pageData.validationMessages || [],
+  };
+}
+
+function buildRichResponseFromAISteps(steps: any[], goal: string, pageData: any, summary?: string) {
+  if (steps.length === 0) {
+    return {
+      pageSummary: `You're on **${pageData.title || pageData.domain}**`,
+      currentStage: 'Complete',
+      instruction: '✅ Goal already accomplished!',
+      details: ['It looks like this task is already done. What would you like to do next?'],
+      highlightTarget: null,
+      highlightConfirmed: false,
+      expectedNextPage: pageData.url,
+      successMessage: summary || 'Goal accomplished',
+      completed: true,
+      confidence: 95,
+    };
+  }
+
+  const firstStep = steps[0];
+  return {
+    pageSummary: summary || `You're on **${pageData.title || pageData.domain}** — I found a path for "${goal}"`,
+    currentStage: firstStep.action === 'input' ? 'Fill Form' : firstStep.action === 'click' ? 'Click' : 'Navigate',
+    instruction: firstStep.instruction,
+    details: steps.map((s: any, i: number) => `${i + 1}. ${s.instruction}`),
+    steps: steps.map((s: any) => ({
+      id: s.id,
+      instruction: s.instruction,
+      reasoning: s.reasoning || '',
+      selector: s.selector || 'body',
+      action: s.action || 'highlight',
+      value: s.value,
+      optional: s.optional,
+    })),
+    highlightTarget: firstStep.selector
+      ? { text: firstStep.instruction.split(' ').slice(0, 4).join(' '), role: firstStep.action === 'input' ? 'textbox' : 'button', elementType: firstStep.action === 'input' ? 'input' : 'button', confidence: 90 }
+      : null,
+    highlightConfirmed: false,
+    expectedNextPage: pageData.url,
+    successMessage: '',
+    completed: false,
+    confidence: 85,
+  };
 }
 
 export default defineBackground({
@@ -111,11 +235,78 @@ export default defineBackground({
                 sendResponse({ error: pageData.error, completed: false, confidence: 0, nextInstruction: 'The page analysis encountered an error. Please try again.' });
                 return;
               }
-              const result = analyzePageForGoal(message.goal, pageData);
-              sendResponse(result);
+
+              const cacheKey = `${message.goal}::${pageData.url}`;
+              const needsFresh = shouldReAnalyze(message.goal, pageData.url, pageData);
+
+              if (!needsFresh) {
+                const cached = responseCache.get(cacheKey);
+                if (cached) {
+                  sendResponse(cached);
+                  return;
+                }
+              }
+
+              const pageContext = buildPageContextFromAnalysis(pageData);
+              const aiResponse = await fetch(`${getApiBase()}/explore/analyze-ai`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ goal: message.goal, url: pageData.url, pageContext }),
+              });
+
+              if (!aiResponse.ok) {
+                const errData = await aiResponse.json().catch(() => ({ error: aiResponse.statusText }));
+                sendResponse({ error: errData.error || 'AI analysis failed', completed: false, confidence: 0, nextInstruction: 'AI analysis failed. Please check your API key or try again.' });
+                return;
+              }
+
+              const aiData = await aiResponse.json();
+              console.log(`[WebGuider] AI generated ${aiData.steps?.length || 0} steps for goal:`, message.goal);
+
+              updateAnalysisCache(message.goal, pageData.url, pageData);
+              const response = buildRichResponseFromAISteps(aiData.steps || [], message.goal, pageData, aiData.summary);
+              responseCache.set(cacheKey, response);
+              sendResponse(response);
             } catch (err) {
               console.error('[WebGuider] EXPLORE_ANALYZE error:', err);
               sendResponse({ error: String(err), completed: false, confidence: 0, nextInstruction: 'An unexpected error occurred. Please try again.' });
+            }
+          })();
+          return true;
+        }
+
+        case 'EXPLORE_QUERY': {
+          (async () => {
+            try {
+              const tabs = await browser.tabs.query({ active: true, currentWindow: true });
+              const tabId = tabs[0]?.id;
+              if (!tabId) {
+                sendResponse({ answer: 'No active tab found.' });
+                return;
+              }
+              const pageData = await analyzeCurrentTab(tabId);
+              const pageContext = pageData ? buildPageContextFromAnalysis(pageData) : null;
+              const resp = await fetch(`${getApiBase()}/explore/chat`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  goal: message.goal,
+                  url: tabs[0].url,
+                  question: message.query,
+                  steps: message.steps || [],
+                  currentStep: message.currentStep,
+                  pageContext,
+                }),
+              });
+              if (!resp.ok) {
+                sendResponse({ answer: 'Sorry, I could not answer that right now. Please try again.' });
+                return;
+              }
+              const data = await resp.json();
+              sendResponse({ answer: data.answer });
+            } catch (err) {
+              console.error('[WebGuider] EXPLORE_QUERY error:', err);
+              sendResponse({ answer: 'An error occurred while answering your question.' });
             }
           })();
           return true;
@@ -127,6 +318,7 @@ export default defineBackground({
               const tabs = await browser.tabs.query({ active: true, currentWindow: true });
               if (tabs[0]?.url) {
                 resetTaskMemory(message.goal, tabs[0].url);
+                responseCache.delete(`${message.goal}::${tabs[0].url}`);
               }
             } catch (err) {
               console.warn('[WebGuider] EXPLORE_RESET error:', err);

@@ -47,6 +47,11 @@ export const api = {
         method: 'POST',
         body: JSON.stringify({ url }),
       }),
+    analyzeAI: (goal: string, url: string, pageContext: unknown) =>
+      request<{ steps: unknown[]; completed: boolean }>('/explore/analyze-ai', {
+        method: 'POST',
+        body: JSON.stringify({ goal, url, pageContext }),
+      }),
   },
 
   resources: {

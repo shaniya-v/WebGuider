@@ -41,5 +41,18 @@ export async function buildApp() {
   await app.register(resourceRoutes);
   await app.register(authRoutes);
 
+  // Centralized error handler for unhandled errors
+  app.setErrorHandler((error, request, reply) => {
+    request.log.error(
+      { err: error, url: request.url, method: request.method, body: request.body },
+      'Unhandled error'
+    );
+    const statusCode = error.statusCode || 500;
+    reply.status(statusCode).send({
+      error: statusCode >= 500 ? 'Internal server error' : error.message,
+      statusCode,
+    });
+  });
+
   return app;
 }

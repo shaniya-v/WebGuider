@@ -78,6 +78,7 @@ export interface RichExplorerResponse {
 export interface ExploreStep {
   id: string;
   instruction: string;
+  reasoning?: string;
   selector: string;
   action: 'click' | 'input' | 'wait' | 'navigate' | 'highlight';
   value?: string;

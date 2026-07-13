@@ -457,6 +457,89 @@ const bookCheckoutWorkflow: Workflow = {
   ],
 };
 
+const createRepoWorkflow: Workflow = {
+  name: 'create_repo',
+  goalPattern: /create\s+(a\s+)?(new\s+)?(repo|repository)\b|new\s+repo/i,
+  stages: [
+    {
+      id: 'click_new_repo',
+      name: 'Open New Repository Form',
+      description: 'Navigate to the new repository creation page',
+      isOnThisPage(state) {
+        return state.pageType === 'dashboard' || state.pageType === 'landing' || state.pageType === 'unknown';
+      },
+      getAction(state) {
+        const plusBtn = state.availableTargets.find(t => /new|create|add|plus|\+/i.test(t.text));
+        const newRepoLink = state.availableTargets.find(t => /new\s+repo|create\s+repo/i.test(t.text));
+        const target = newRepoLink || plusBtn || state.availableTargets.find(t => t.elementType === 'link' || t.elementType === 'button');
+        if (target) {
+          return {
+            highlightTarget: { text: target.text, role: target.elementType === 'link' ? 'link' : 'button', elementType: target.elementType as any, confidence: target.confidence },
+            instruction: `Click the **${target.text}** button highlighted on your screen to start creating a new repository.`,
+            details: [
+              `This will take you to the repository creation form.`,
+              `On the next page, you'll choose a name and configure your repository.`,
+              `After creating, I'll confirm the repository is ready.`,
+            ],
+            summary: `You're on **${state.domain}** — let's start creating your repository.`,
+          };
+        }
+        return null;
+      },
+      isComplete(state, _memory) {
+        return state.pageType === 'form' || state.url.includes('/new') || hasUrlChanged(_memory, state);
+      },
+    },
+    {
+      id: 'fill_repo_form',
+      name: 'Configure Repository',
+      description: 'Fill in the repository name and settings',
+      isOnThisPage(state) {
+        return state.url.includes('/new') || state.pageType === 'form';
+      },
+      getAction(state) {
+        const details: string[] = [];
+        const inputs = state.formInputs.filter(i => i.type !== 'hidden');
+        for (const inp of inputs.slice(0, 5)) {
+          const label = inp.placeholder || inp.label || inp.name || 'field';
+          if (/name|repo/i.test(label)) {
+            details.push(`Enter a **name** for your repository in the **${label}** field (e.g., "my-project").`);
+          } else if (/description|desc/i.test(label)) {
+            details.push(`Optionally add a **description** in the **${label}** field.`);
+          } else {
+            details.push(`Fill in **${label}**${inp.required ? ' (required)' : ''}.`);
+          }
+        }
+        if (details.length === 0) {
+          details.push('Choose a **name** for your repository in the first field.');
+        }
+
+        const createBtn = findTarget(state, /create|submit|done/i) || 
+          (state.submitButtonText ? { text: state.submitButtonText, elementType: 'button' as const, confidence: 80 } : null);
+        if (createBtn) {
+          details.push(`Click **${createBtn.text}** to create the repository.`);
+        } else {
+          details.push(`Click the **Create repository** button to finish.`);
+        }
+
+        const nameInput = inputs.find(i => /name|repo/i.test(i.placeholder || i.label || i.name)) || inputs[0];
+        return {
+          highlightTarget: nameInput
+            ? { text: nameInput.placeholder || nameInput.label || 'Repository name', role: 'textbox', elementType: 'input', confidence: 85 }
+            : null,
+          instruction: `Now configure your new repository on **${state.domain}**. Choose a name and optionally add a description.`,
+          details,
+          summary: `You're on the repository creation page — choose a name and configure your repo.`,
+        };
+      },
+      isComplete(state, _memory) {
+        if (state.successMessages.length > 0) return true;
+        return hasUrlChanged(_memory, state);
+      },
+    },
+  ],
+};
+
 const settingsWorkflow: Workflow = {
   name: 'settings',
   goalPattern: /settings|profile|password|preferences|edit|update|change|modify/i,
@@ -580,6 +663,7 @@ const genericFormWorkflow: Workflow = {
 const allWorkflows: Workflow[] = [
   loginWorkflow,
   signupWorkflow,
+  createRepoWorkflow,
   createIssueWorkflow,
   searchWorkflow,
   bookCheckoutWorkflow,

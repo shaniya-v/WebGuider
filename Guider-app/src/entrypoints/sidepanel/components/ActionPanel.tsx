@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useSidebarStore } from '../stores/sidebarStore';
 import type { ExplorerStatus } from '../stores/sidebarStore';
@@ -60,17 +60,22 @@ export function ActionPanel() {
     completedSteps, currentPageTitle, pageUrl, domain,
     messages, lastIntent,
     pageSummary, details, highlightTarget, highlightConfirmed, successMessage,
+    exploreSteps, currentStepIndex,
+    exploreChatOpen, exploreChatMessages, exploreChatLoading,
+    toggleExploreChat, askExploreDoubt,
   } = useSidebarStore();
 
   const inputRef = useRef<HTMLInputElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const chatInputRef = useRef<HTMLInputElement>(null);
   const status = statusConfig[explorerStatus] || statusConfig.idle;
+  const [chatInput, setChatInput] = useState('');
 
   const isActive = explorerStatus !== 'idle' && explorerStatus !== 'error';
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages, explorerStatus, details]);
+  }, [messages, explorerStatus, details, exploreChatMessages]);
 
   useEffect(() => {
     let interval: ReturnType<typeof setInterval>;
@@ -89,6 +94,16 @@ export function ActionPanel() {
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter') handleSubmit();
+  };
+
+  const handleChatSend = () => {
+    if (!chatInput.trim() || exploreChatLoading) return;
+    askExploreDoubt(chatInput.trim());
+    setChatInput('');
+  };
+
+  const handleChatKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter') handleChatSend();
   };
 
   const showChat = lastIntent === 'conversation' || lastIntent === 'unclear';
@@ -266,23 +281,47 @@ export function ActionPanel() {
                         <p className="text-[10px] text-gray-500 dark:text-gray-400 uppercase tracking-wider font-medium">
                           Steps to follow
                         </p>
-                        <div className="space-y-1.5">
-                          {details.map((detail, i) => (
-                            <motion.div
-                              key={i}
-                              initial={{ opacity: 0, x: -8 }}
-                              animate={{ opacity: 1, x: 0 }}
-                              transition={{ delay: i * 0.05 }}
-                              className="flex items-start gap-2.5"
-                            >
-                              <span className="shrink-0 w-5 h-5 rounded-full bg-primary-100 dark:bg-primary-900/30 text-primary-600 dark:text-primary-400 flex items-center justify-center text-[10px] font-semibold mt-0.5">
-                                {i + 1}
-                              </span>
-                              <span className="text-sm text-gray-700 dark:text-gray-300 leading-relaxed">
-                                {renderInline(detail)}
-                              </span>
-                            </motion.div>
-                          ))}
+                        <div className="space-y-2">
+                          {details.map((detail, i) => {
+                            const stepInfo = exploreSteps[i];
+                            return (
+                              <motion.div
+                                key={i}
+                                initial={{ opacity: 0, x: -8 }}
+                                animate={{ opacity: 1, x: 0 }}
+                                transition={{ delay: i * 0.05 }}
+                                className={`rounded-lg border p-3 ${
+                                  i === currentStepIndex
+                                    ? 'bg-primary-50/70 dark:bg-primary-900/15 border-primary-200/70 dark:border-primary-700/40'
+                                    : 'bg-white dark:bg-gray-800/30 border-gray-100 dark:border-gray-700/20'
+                                }`}
+                              >
+                                <div className="flex items-start gap-2.5">
+                                  <span className={`shrink-0 w-6 h-6 rounded-full flex items-center justify-center text-[11px] font-semibold mt-0.5 ${
+                                    i === currentStepIndex
+                                      ? 'bg-primary-500 text-white'
+                                      : 'bg-gray-200 dark:bg-gray-700 text-gray-500 dark:text-gray-400'
+                                  }`}>
+                                    {i + 1}
+                                  </span>
+                                  <div className="min-w-0 flex-1">
+                                    <span className={`text-sm leading-relaxed ${
+                                      i === currentStepIndex
+                                        ? 'text-gray-900 dark:text-gray-100 font-medium'
+                                        : 'text-gray-500 dark:text-gray-400'
+                                    }`}>
+                                      {renderInline(detail.replace(/^\d+\.\s*/, ''))}
+                                    </span>
+                                    {stepInfo?.reasoning && i === currentStepIndex && (
+                                      <p className="text-[11px] text-gray-400 dark:text-gray-500 mt-1.5 leading-relaxed">
+                                        {stepInfo.reasoning}
+                                      </p>
+                                    )}
+                                  </div>
+                                </div>
+                              </motion.div>
+                            );
+                          })}
                         </div>
                       </div>
                     )}
@@ -332,7 +371,7 @@ export function ActionPanel() {
                             <div
                               key={i}
                               className={`flex-1 h-1 rounded-full transition-colors ${
-                                step.completed ? 'bg-green-400' : i === completedSteps.length - 1 ? 'bg-primary-500' : 'bg-gray-200 dark:bg-gray-700'
+                                step.completed ? 'bg-green-400' : i === currentStepIndex ? 'bg-primary-500' : 'bg-gray-200 dark:bg-gray-700'
                               }`}
                             />
                           ))}
@@ -342,7 +381,7 @@ export function ActionPanel() {
                             <div
                               key={i}
                               className={`flex items-start gap-2 p-2 rounded-lg text-xs ${
-                                !step.completed && i === completedSteps.length - 1
+                                !step.completed && i === currentStepIndex
                                   ? 'bg-primary-50/50 dark:bg-primary-900/10 border border-primary-200/50 dark:border-primary-800/30'
                                   : step.completed
                                   ? 'text-gray-500 dark:text-gray-400'
@@ -352,7 +391,7 @@ export function ActionPanel() {
                               <span className={`mt-0.5 shrink-0 w-4 h-4 rounded-full flex items-center justify-center text-[9px] font-medium ${
                                 step.completed
                                   ? 'bg-green-100 text-green-600 dark:bg-green-900/30 dark:text-green-400'
-                                  : i === completedSteps.length - 1
+                                  : i === currentStepIndex
                                   ? 'bg-primary-100 text-primary-600 dark:bg-primary-900/30 dark:text-primary-400'
                                   : 'bg-gray-100 text-gray-400 dark:bg-gray-700 dark:text-gray-500'
                               }`}>
@@ -397,6 +436,79 @@ export function ActionPanel() {
           </div>
         )}
       </div>
+
+      {isActive && explorerStatus !== 'analyzing' && (
+        <div className="border-t border-gray-200 dark:border-gray-700 shrink-0">
+          <button
+            onClick={toggleExploreChat}
+            className="w-full flex items-center justify-between px-4 py-2 text-xs text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors"
+          >
+            <span className="flex items-center gap-1.5">
+              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M8.625 12a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0H8.25m4.125 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0H12m4.125 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0h-.375M21 12c0 4.556-4.03 8.25-9 8.25a9.764 9.764 0 01-2.555-.337A5.972 5.972 0 015.41 20.97a5.969 5.969 0 01-.474-.065 4.48 4.48 0 00.978-2.025c.09-.457-.133-.901-.467-1.226C3.93 16.178 3 14.189 3 12c0-4.556 4.03-8.25 9-8.25s9 3.694 9 8.25z" />
+              </svg>
+              Ask a doubt
+            </span>
+            <svg className={`w-3.5 h-3.5 transition-transform ${exploreChatOpen ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
+            </svg>
+          </button>
+          <AnimatePresence>
+            {exploreChatOpen && (
+              <motion.div
+                initial={{ height: 0, opacity: 0 }}
+                animate={{ height: 'auto', opacity: 1 }}
+                exit={{ height: 0, opacity: 0 }}
+                className="overflow-hidden border-t border-gray-200 dark:border-gray-700"
+              >
+                <div className="max-h-48 overflow-y-auto px-3 py-2 space-y-2">
+                  {exploreChatMessages.length === 0 && !exploreChatLoading && (
+                    <p className="text-xs text-gray-400 dark:text-gray-500 text-center py-3">
+                      Ask anything about this task — what a step means, what to expect, or for help
+                    </p>
+                  )}
+                  {exploreChatMessages.map((msg) => (
+                    <div key={msg.id} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                      <div className={`max-w-[90%] rounded-xl px-3 py-2 ${
+                        msg.role === 'user'
+                          ? 'bg-primary-500 text-white text-xs rounded-br-sm'
+                          : 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 text-xs rounded-bl-sm border border-gray-200/50 dark:border-gray-700/30'
+                      }`}>
+                        {msg.content}
+                      </div>
+                    </div>
+                  ))}
+                  {exploreChatLoading && (
+                    <div className="flex justify-start">
+                      <div className="bg-gray-100 dark:bg-gray-800 rounded-xl px-3 py-2 text-xs text-gray-400 dark:text-gray-500 rounded-bl-sm border border-gray-200/50 dark:border-gray-700/30">
+                        <span className="animate-pulse">Thinking...</span>
+                      </div>
+                    </div>
+                  )}
+                  <div ref={messagesEndRef} />
+                </div>
+                <div className="flex items-center gap-1.5 px-3 py-2 border-t border-gray-200 dark:border-gray-700">
+                  <input
+                    ref={chatInputRef}
+                    value={chatInput}
+                    onChange={(e) => setChatInput(e.target.value)}
+                    onKeyDown={handleChatKeyDown}
+                    placeholder="Ask a doubt..."
+                    className="flex-1 px-2.5 py-1.5 text-xs rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-1 focus:ring-primary-500/40"
+                  />
+                  <button
+                    onClick={handleChatSend}
+                    disabled={!chatInput.trim() || exploreChatLoading}
+                    className="shrink-0 px-2.5 py-1.5 text-xs font-medium rounded-lg bg-primary-500 text-white hover:bg-primary-600 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                  >
+                    Send
+                  </button>
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </div>
+      )}
     </div>
   );
 }
