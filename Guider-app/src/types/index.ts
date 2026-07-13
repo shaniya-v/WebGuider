@@ -55,6 +55,26 @@ export interface CodingExercise {
   language: string;
 }
 
+export interface HighlightTarget {
+  text: string;
+  role?: string;
+  elementType?: 'button' | 'link' | 'input' | 'form' | 'select' | 'checkbox' | 'radio' | 'tab' | 'menuitem';
+  confidence: number;
+}
+
+export interface RichExplorerResponse {
+  pageSummary: string;
+  currentStage: string;
+  instruction: string;
+  details: string[];
+  highlightTarget: HighlightTarget | null;
+  highlightConfirmed: boolean;
+  expectedNextPage: string;
+  successMessage: string;
+  completed: boolean;
+  confidence: number;
+}
+
 export interface ExploreStep {
   id: string;
   instruction: string;
@@ -131,4 +151,59 @@ export interface Session {
   messages: Message[];
   startedAt: number;
   lastActivityAt: number;
+}
+
+export type PageType =
+  | 'login' | 'signup' | 'dashboard' | 'repo' | 'issues_list'
+  | 'issue_form' | 'pull_requests' | 'search_results'
+  | 'search' | 'checkout' | 'checkout_review' | 'cart'
+  | 'settings' | 'profile' | 'order_history'
+  | 'landing' | 'listing' | 'form' | 'error_page'
+  | 'unknown';
+
+export interface PageState {
+  pageType: PageType;
+  pagePurpose: string;
+  url: string;
+  title: string;
+  domain: string;
+  mainHeading: string;
+  visibleErrors: string[];
+  successMessages: string[];
+  validationMessages: string[];
+  hasActiveModal: boolean;
+  hasActiveDialog: boolean;
+  hasPasswordField: boolean;
+  hasEmailField: boolean;
+  hasSearchField: boolean;
+  hasForm: boolean;
+  submitButtonText: string | null;
+  loginButton: { text: string } | null;
+  signupButton: { text: string } | null;
+  authInputs: { placeholder: string; type: string; label: string }[];
+  formInputs: { placeholder: string; type: string; label: string; name: string; required: boolean }[];
+  disabledButtons: string[];
+  breadcrumbs: string[];
+  toasts: string[];
+  availableTargets: { text: string; elementType: string; confidence: number; action: string }[];
+  workflowHint: string;
+}
+
+export interface ExplorerMemory {
+  goal: string;
+  website: string;
+  currentStageId: string;
+  completedStageIds: string[];
+  previousUrl: string;
+  expectedNextAction: string;
+  lastHighlightSent: { text: string } | null;
+  lastHighlightConfirmed: boolean;
+  lastError: string | null;
+  lastSuccess: string | null;
+}
+
+export interface ConfirmHighlightResult {
+  success: boolean;
+  confidence?: number;
+  error?: string;
 }
