@@ -85,6 +85,7 @@ export async function askQuestion(
 export interface ExploreStepsResult {
   steps: ExploreStep[];
   summary: string;
+  completed: boolean;
 }
 
 export async function generateExploreSteps(
@@ -98,29 +99,35 @@ export async function generateExploreSteps(
   const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
     {
       role: 'system',
-      content: `You are a web navigation guide. Analyze this webpage and generate step-by-step instructions for the user to accomplish their goal.
+      content: `You are a knowledgeable web navigation guide. Help the user accomplish their goal on any website.
+
+HOW TO GUIDE:
+1. First look at the page elements provided. If the goal can be done with elements on this page (buttons, links, inputs), generate concrete steps using their selectors.
+2. If the exact elements aren't on this page, use your knowledge of how this website and similar websites work to give navigation guidance — tell the user what page to go to, what to look for, or what to click next.
+3. You can use "navigate" action for suggesting going to a different page/URL.
+4. You can use "click" action with a descriptive selector like "a[href*='settings']" or "nav a:contains('Settings')" based on common patterns.
+5. If you're giving general guidance (not a concrete element on the page), use "highlight" action with selector "body" and explain in the instruction what the user should do.
+6. Always include a "reasoning" field explaining why each step is needed — this is where you can explain the website's workflow.
+7. Include overall "summary" describing the page, the goal, and the plan.
 
 RULES:
-- First check if the goal is ALREADY accomplished (success messages on page, confirmation shown, form submitted, item in cart, etc.). If done, respond: {"completed":true,"summary":"Explain why it's done","steps":[]}
-- Use ONLY elements that exist in the page context below
-- Each step needs a CSS selector from the page elements
-- Actions: click (buttons/links), input (form fields), wait (for page changes), navigate (to URL), highlight (info)
-- For input steps, include the value when possible
-- Handle dynamic scenarios: clicking may open a modal (e.g., sign-in prompt on "add to cart")
-- Each step must have a "reasoning" field explaining WHY this step is needed and what to expect
-- Include an overall "summary" field describing the full plan
-- Keep instructions short and actionable
-- Respond JSON: {"completed":false,"summary":"Overall plan description","steps":[{"instruction":"...","reasoning":"Why this step is needed","selector":"...","action":"click|input|wait|navigate|highlight","value":"..."}]}`,
+- If concrete elements exist for the goal, use them with their exact selectors.
+- If not, use your knowledge to guide the user (e.g., "Go to Settings", "Click your profile icon", "Navigate to the Danger Zone").
+- Never refuse to help just because elements aren't on the page. Use your training to figure out the workflow.
+- Check if goal is already accomplished → {"completed":true,"summary":"Why","steps":[]}
+- Actions: click | input | wait | navigate | highlight
+
+Respond in JSON format: {"completed":false,"summary":"...","steps":[{"instruction":"...","reasoning":"...","selector":"...","action":"click|input|wait|navigate|highlight","value":"..."}]}`,
     },
     {
       role: 'user',
       content: `Goal: ${goal}
 URL: ${url}
 
-Page:
+Page elements available:
 ${pageDescription}
 
-Generate steps using ONLY the elements listed above. First determine if the goal is already completed.`,
+First, check if the goal is already done on this page. If not, figure out the workflow — use page elements if they exist, otherwise use your knowledge of the website to guide the user step by step. Return JSON.`,
     },
   ];
 
@@ -141,9 +148,9 @@ Generate steps using ONLY the elements listed above. First determine if the goal
       const parsed = JSON.parse(content);
       if (parsed.completed) {
         log.info({ summary: parsed.summary }, 'Goal already completed per AI');
-        return { steps: [], summary: parsed.summary || 'Goal accomplished' };
+        return { steps: [], summary: parsed.summary || 'Goal accomplished', completed: true };
       }
-      if (parsed.steps && Array.isArray(parsed.steps) && parsed.steps.length > 0) {
+      if (Array.isArray(parsed.steps)) {
         const summary = parsed.summary || parsed.steps[0]?.reasoning || '';
         log.info({ stepCount: parsed.steps.length, summary }, 'Explore steps generated');
         const steps = parsed.steps.map((step: Record<string, string>, i: number) => ({
@@ -155,7 +162,7 @@ Generate steps using ONLY the elements listed above. First determine if the goal
           value: step.value,
           optional: step.optional === 'true',
         }));
-        return { steps, summary };
+        return { steps, summary, completed: false };
       }
       log.warn({ parsed }, 'AI response did not contain valid steps array');
     } catch (parseErr) {
@@ -213,6 +220,77 @@ Answer concisely (2-4 sentences) about this specific task.`,
   return completion.choices[0]?.message?.content?.trim() || 'I could not find an answer. Please try rephrasing your question.';
 }
 
+export async function generateSuggestion(
+  goal: string,
+  url: string,
+  pageContext: PageContext | undefined,
+  recentActivity: Array<{ type: string; target?: string; value?: string }>,
+  currentSteps: ExploreStep[],
+  log: FastifyBaseLogger = noopLogger
+): Promise<{ suggestion: string; type: 'tip' | 'correction' | 'encouragement' | 'info' } | null> {
+  if (recentActivity.length === 0) return null;
+
+  const pageDesc = pageContext ? buildPageDescription(pageContext) : 'No page context.';
+  const recentActivityText = recentActivity.slice(-10).map((a) =>
+    `[${a.type}] ${a.target || ''}${a.value ? ': ' + a.value : ''}`
+  ).join('\n');
+  const stepsText = currentSteps.map((s, i) => `${i + 1}. ${s.instruction}`).join('\n');
+
+  const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
+    {
+      role: 'system',
+      content: `You are a proactive web guide watching the user's activity. Analyze what they're doing and give a brief, helpful suggestion.
+
+Respond ONLY if you have something useful to say. Otherwise respond: null
+
+If responding, use JSON: {"suggestion":"short helpful text","type":"tip|correction|encouragement|info"}
+
+- tip: a useful hint about what to do next
+- correction: they're doing something wrong or suboptimal
+- encouragement: they're on the right track
+- info: general information about the page or task`,
+    },
+    {
+      role: 'user',
+      content: `Goal: ${goal}
+URL: ${url}
+
+Current plan:
+${stepsText || 'No plan yet'}
+
+Page:
+${pageDesc}
+
+Recent user activity:
+${recentActivityText || 'No activity yet'}
+
+Based on the activity and goal, does the user need a suggestion? If yes, provide one. If they're doing fine, respond: null`,
+    },
+  ];
+
+  log.info({ goal, activityCount: recentActivity.length }, 'Generating suggestion');
+  const completion = await openai.chat.completions.create({
+    model: config.ai.exploreModel,
+    messages,
+    temperature: 0.3,
+    max_tokens: 200,
+  });
+
+  const content = completion.choices[0]?.message?.content?.trim();
+  if (!content || content === 'null') return null;
+
+  try {
+    const parsed = JSON.parse(content);
+    if (parsed.suggestion) {
+      return { suggestion: parsed.suggestion, type: parsed.type || 'info' };
+    }
+  } catch {
+    log.warn({ content: content.slice(0, 200) }, 'Could not parse suggestion JSON');
+  }
+
+  return null;
+}
+
 function buildPageDescription(ctx: PageContext): string {
   const parts: string[] = [];
   parts.push(`Page: "${ctx.title}" (${ctx.url})`);
@@ -234,7 +312,8 @@ function buildPageDescription(ctx: PageContext): string {
   if (ctx.inputs.length > 0) {
     parts.push(`\nInputs (${ctx.inputs.length}):`);
     ctx.inputs.filter(i => i.visible).slice(0, 20).forEach(i => {
-      parts.push(`  - type=${i.type} name="${i.name}" placeholder="${i.placeholder}" label="${i.label}" selector=${i.selector} required=${i.required}`);
+      const valueStr = i.value ? ` value="${i.value}"` : '';
+      parts.push(`  - type=${i.type} name="${i.name}" placeholder="${i.placeholder}" label="${i.label}"${valueStr} selector=${i.selector} required=${i.required}`);
     });
   }
 

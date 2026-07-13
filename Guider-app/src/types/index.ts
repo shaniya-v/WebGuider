@@ -73,6 +73,7 @@ export interface RichExplorerResponse {
   successMessage: string;
   completed: boolean;
   confidence: number;
+  suggestion: { suggestion: string; type: 'tip' | 'correction' | 'encouragement' | 'info' } | null;
 }
 
 export interface ExploreStep {

@@ -95,6 +95,7 @@ export default defineContentScript({
         selector: generateSelector(el as HTMLElement),
         required: (el as HTMLInputElement).required || false,
         visible: isVisible(el as HTMLElement),
+        value: (el as HTMLInputElement).value?.slice(0, 80) || '',
       }));
     }
 
@@ -876,16 +877,60 @@ export default defineContentScript({
         case 'GET_PAGE_INFO':
           sendResponse({ url: location.href, title: document.title, domain: location.hostname });
           break;
+        case 'GET_ACTIVITY': {
+          const buf = activityBuffer.splice(0);
+          sendResponse({ activities: buf });
+          break;
+        }
         default:
           sendResponse({ error: 'Unknown message type: ' + message.type });
       }
       return true;
     });
 
+    const activityBuffer: Array<{ type: string; target?: string; selector?: string; value?: string; url?: string; timestamp: number }> = [];
+    let activityTimer: ReturnType<typeof setTimeout> | null = null;
+
+    function trackActivity(type: string, detail?: { target?: string; selector?: string; value?: string }) {
+      activityBuffer.push({ type, ...detail, url: location.href, timestamp: Date.now() });
+      if (activityBuffer.length > 50) activityBuffer.splice(0, 10);
+      if (!activityTimer) {
+        activityTimer = setTimeout(() => {
+          activityTimer = null;
+          browser.runtime.sendMessage({ type: 'USER_ACTIVITY', activities: activityBuffer.splice(0) }).catch(() => {});
+        }, 3000);
+      }
+    }
+
+    function injectActivityListeners() {
+      document.addEventListener('click', (e) => {
+        const el = e.target as HTMLElement;
+        const tag = el.tagName.toLowerCase();
+        const text = (el as any).textContent?.trim().slice(0, 60) || el.getAttribute('aria-label') || '';
+        const selector = tag + (el.id ? '#' + el.id : '') + (el.className && typeof el.className === 'string' ? '.' + el.className.split(' ').slice(0, 2).join('.') : '');
+        trackActivity('click', { target: text || tag, selector: selector.slice(0, 80) });
+      }, true);
+
+      document.addEventListener('input', (e) => {
+        const el = e.target as HTMLInputElement;
+        if (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT') {
+          const name = el.getAttribute('name') || el.getAttribute('placeholder') || el.id || '';
+          trackActivity('input', { target: name, value: (el as HTMLInputElement).value?.slice(0, 40) });
+        }
+      }, true);
+
+      document.addEventListener('submit', (e) => {
+        const el = e.target as HTMLElement;
+        const text = (el.querySelector('[type="submit"], button') as HTMLElement)?.textContent?.trim() || 'form';
+        trackActivity('submit', { target: text });
+      }, true);
+    }
+
     function onReady() {
       pageLoaded = true;
       startMutationWatching();
       startUrlWatching();
+      injectActivityListeners();
       browser.runtime.sendMessage({ type: 'CONTENT_SCRIPT_READY', url: location.href }).catch(() => {});
     }
 

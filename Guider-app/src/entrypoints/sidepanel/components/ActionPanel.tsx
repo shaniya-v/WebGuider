@@ -60,7 +60,7 @@ export function ActionPanel() {
     completedSteps, currentPageTitle, pageUrl, domain,
     messages, lastIntent,
     pageSummary, details, highlightTarget, highlightConfirmed, successMessage,
-    exploreSteps, currentStepIndex,
+    exploreSteps, currentStepIndex, suggestion,
     exploreChatOpen, exploreChatMessages, exploreChatLoading,
     toggleExploreChat, askExploreDoubt,
   } = useSidebarStore();
@@ -86,6 +86,12 @@ export function ActionPanel() {
     }
     return () => { if (interval) clearInterval(interval); };
   }, [explorerStatus]);
+
+  useEffect(() => {
+    if (exploreChatOpen && chatInputRef.current) {
+      setTimeout(() => chatInputRef.current?.focus(), 100);
+    }
+  }, [exploreChatOpen]);
 
   const handleSubmit = () => {
     if (!goal.trim()) return;
@@ -342,6 +348,25 @@ export function ActionPanel() {
                           }
                         </span>
                       </div>
+                    )}
+
+                    {suggestion && (
+                      <motion.div
+                        initial={{ opacity: 0, y: -4 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        className={`flex items-start gap-2 text-xs rounded-lg px-3 py-2.5 border ${
+                          suggestion.type === 'correction'
+                            ? 'bg-amber-50 dark:bg-amber-900/15 border-amber-200 dark:border-amber-700/30 text-amber-700 dark:text-amber-300'
+                            : suggestion.type === 'encouragement'
+                            ? 'bg-green-50 dark:bg-green-900/15 border-green-200 dark:border-green-700/30 text-green-700 dark:text-green-300'
+                            : 'bg-blue-50 dark:bg-blue-900/15 border-blue-200 dark:border-blue-700/30 text-blue-700 dark:text-blue-300'
+                        }`}
+                      >
+                        <span className="mt-0.5 shrink-0">
+                          {suggestion.type === 'correction' ? '💡' : suggestion.type === 'encouragement' ? '👍' : 'ℹ️'}
+                        </span>
+                        <span>{suggestion.suggestion}</span>
+                      </motion.div>
                     )}
 
                     <div className="flex items-center justify-between text-xs">

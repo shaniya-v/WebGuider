@@ -63,6 +63,7 @@ export interface PageInput {
   selector: string;
   required: boolean;
   visible: boolean;
+  value?: string;
 }
 
 export interface PageLink {

@@ -20,6 +20,7 @@ interface SessionState {
 const readyTabs = new Set<number>();
 const lastAnalysisCache = new Map<string, { url: string; hash: string; timestamp: number }>();
 const responseCache = new Map<string, any>();
+const activityStore = new Map<number, Array<{ type: string; target?: string; selector?: string; value?: string; url?: string; timestamp: number }>>();
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -110,6 +111,7 @@ function buildRichResponseFromAISteps(steps: any[], goal: string, pageData: any,
       successMessage: summary || 'Goal accomplished',
       completed: true,
       confidence: 95,
+      suggestion: null,
     };
   }
 
@@ -136,6 +138,7 @@ function buildRichResponseFromAISteps(steps: any[], goal: string, pageData: any,
     successMessage: '',
     completed: false,
     confidence: 85,
+    suggestion: null,
   };
 }
 
@@ -265,6 +268,26 @@ export default defineBackground({
 
               updateAnalysisCache(message.goal, pageData.url, pageData);
               const response = buildRichResponseFromAISteps(aiData.steps || [], message.goal, pageData, aiData.summary);
+
+              const activityResp = await sendToContent(tabId, { type: 'GET_ACTIVITY' });
+              if (activityResp?.activities?.length > 0) {
+                const suggestResp = await fetch(`${getApiBase()}/explore/suggest`, {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                    goal: message.goal,
+                    url: pageData.url,
+                    pageContext,
+                    recentActivity: activityResp.activities,
+                    currentSteps: response.steps || [],
+                  }),
+                }).catch(() => null);
+                if (suggestResp?.ok) {
+                  const suggestData = await suggestResp.json();
+                  response.suggestion = suggestData.suggestion;
+                }
+              }
+
               responseCache.set(cacheKey, response);
               sendResponse(response);
             } catch (err) {
@@ -310,6 +333,18 @@ export default defineBackground({
             }
           })();
           return true;
+        }
+
+        case 'USER_ACTIVITY': {
+          const tabId = sender.tab?.id;
+          if (tabId && message.activities) {
+            const existing = activityStore.get(tabId) || [];
+            existing.push(...message.activities);
+            if (existing.length > 100) existing.splice(0, 50);
+            activityStore.set(tabId, existing);
+          }
+          sendResponse({ received: true });
+          break;
         }
 
         case 'EXPLORE_RESET': {

@@ -38,12 +38,14 @@ interface SidebarState {
   highlightTarget: HighlightTarget | null;
   highlightConfirmed: boolean;
   successMessage: string;
+  suggestion: { suggestion: string; type: 'tip' | 'correction' | 'encouragement' | 'info' } | null;
   exploreSteps: ExploreStep[];
   currentStepIndex: number;
 
   exploreChatOpen: boolean;
   exploreChatMessages: ChatMessage[];
   exploreChatLoading: boolean;
+  privatePolling: boolean;
 
   lastIntent: IntentType;
   lastIntentConfidence: number;
@@ -90,12 +92,14 @@ export const useSidebarStore = create<SidebarState>((set, get) => ({
   highlightTarget: null,
   highlightConfirmed: false,
   successMessage: '',
+  suggestion: null,
   exploreSteps: [],
   currentStepIndex: 0,
 
   exploreChatOpen: false,
   exploreChatMessages: [],
   exploreChatLoading: false,
+  privatePolling: false,
 
   lastIntent: null,
   lastIntentConfidence: 0,
@@ -115,7 +119,7 @@ export const useSidebarStore = create<SidebarState>((set, get) => ({
   toggleExploreChat: () => set((s) => ({ exploreChatOpen: !s.exploreChatOpen })),
 
   askExploreDoubt: async (question: string) => {
-    const { goal, exploreSteps, currentStepIndex, pageUrl } = get();
+    const { goal, exploreSteps, currentStepIndex, pageUrl, currentPageTitle } = get();
     if (!question.trim()) return;
 
     const userMsg: ChatMessage = { id: generateId(), role: 'user', content: question, timestamp: Date.now() };
@@ -125,9 +129,11 @@ export const useSidebarStore = create<SidebarState>((set, get) => ({
       const resp: { answer: string } = await browser.runtime.sendMessage({
         type: 'EXPLORE_QUERY',
         goal,
+        url: pageUrl,
         query: question,
         steps: exploreSteps,
         currentStep: currentStepIndex,
+        pageTitle: currentPageTitle,
       });
       const assistantMsg: ChatMessage = { id: generateId(), role: 'assistant', content: resp.answer || 'No answer available.', timestamp: Date.now() };
       set((s) => ({ exploreChatMessages: [...s.exploreChatMessages, assistantMsg], exploreChatLoading: false }));
@@ -197,6 +203,7 @@ export const useSidebarStore = create<SidebarState>((set, get) => ({
         details: result.details,
         exploreSteps: steps,
         currentStepIndex: 0,
+        suggestion: (result as any).suggestion || null,
         highlightTarget: result.highlightTarget,
         highlightConfirmed: result.highlightConfirmed || false,
         successMessage: result.successMessage,
@@ -205,7 +212,7 @@ export const useSidebarStore = create<SidebarState>((set, get) => ({
         currentPageTitle: (result as any).currentPage || '',
         pageUrl: result.expectedNextPage || '',
         completedSteps: steps.length > 0
-          ? steps.map((s: any, i: number) => ({ instruction: s.instruction, completed: i === 0 ? false : false }))
+          ? steps.map((s: any, i: number) => ({ instruction: s.instruction, completed: false }))
           : [{ instruction: result.instruction, completed: false }],
       });
 
@@ -223,20 +230,14 @@ export const useSidebarStore = create<SidebarState>((set, get) => ({
     }
   },
 
+  privatePolling: false,
   analyzeCurrentPage: async () => {
-    const { goal, explorerStatus } = get();
-    if (explorerStatus === 'analyzing' || explorerStatus === 'completed') return;
+    const { goal, explorerStatus, exploreSteps: oldSteps, privatePolling } = get();
+    if (privatePolling || explorerStatus === 'completed') return;
 
-    set({ explorerStatus: 'analyzing' });
+    set({ privatePolling: true });
 
     try {
-      const progress: { steps: ExplorerStep[] } = await browser.runtime.sendMessage({
-        type: 'EXPLORE_GET_PROGRESS',
-        goal,
-      });
-
-      const allSteps = progress.steps || [];
-
       const result: RichExplorerResponse = await browser.runtime.sendMessage({
         type: 'EXPLORE_ANALYZE',
         goal,
@@ -249,12 +250,15 @@ export const useSidebarStore = create<SidebarState>((set, get) => ({
           currentInstruction: errResult.nextInstruction || errResult.error,
           aiReasoning: errResult.reason || '',
           confidence: 0,
-          completedSteps: allSteps,
+          privatePolling: false,
         });
         return;
       }
 
       if (result.completed) {
+        const allCompleted = oldSteps.length > 0
+          ? oldSteps.map((s) => ({ instruction: s.instruction, completed: true }))
+          : [{ instruction: result.instruction, completed: true }];
         set({
           explorerStatus: 'completed',
           currentInstruction: result.instruction,
@@ -266,26 +270,40 @@ export const useSidebarStore = create<SidebarState>((set, get) => ({
           aiReasoning: result.currentStage || '',
           confidence: result.confidence,
           currentPageTitle: (result as any).currentPage || '',
-          completedSteps: allSteps.map((s) => ({ ...s, completed: true })),
+          suggestion: null,
+          completedSteps: allCompleted,
+          privatePolling: false,
         });
         return;
       }
 
-      const steps = (result as any).steps || [];
-      const newSteps = steps.length > 0
-        ? steps.map((s: any) => ({ instruction: s.instruction, completed: false }))
-        : [...allSteps];
-      if (newSteps.length === 0 && !newSteps.find((s) => s.instruction === result.instruction)) {
-        newSteps.push({ instruction: result.instruction, completed: false });
+      const newRawSteps = (result as any).steps || [];
+
+      const oldCompleted = oldSteps.map((s) => s.instruction);
+      const newInstructions = newRawSteps.map((s: any) => s.instruction);
+
+      const mergedSteps = oldSteps.map((s) => ({
+        ...s,
+        completed: s.completed || !newInstructions.includes(s.instruction),
+      }));
+
+      for (const ns of newRawSteps) {
+        if (!mergedSteps.find((s) => s.instruction === ns.instruction)) {
+          mergedSteps.push({ instruction: ns.instruction, completed: false });
+        }
       }
+
+      const firstIncomplete = mergedSteps.findIndex((s) => !s.completed);
+      const activeIndex = firstIncomplete >= 0 ? firstIncomplete : mergedSteps.length - 1;
 
       set({
         explorerStatus: 'waiting',
         currentInstruction: result.instruction,
         pageSummary: result.pageSummary,
         details: result.details,
-        exploreSteps: steps,
-        currentStepIndex: 0,
+        exploreSteps: newRawSteps,
+        currentStepIndex: activeIndex,
+        suggestion: (result as any).suggestion || null,
         highlightTarget: result.highlightTarget,
         highlightConfirmed: result.highlightConfirmed || false,
         successMessage: result.successMessage,
@@ -293,7 +311,8 @@ export const useSidebarStore = create<SidebarState>((set, get) => ({
         confidence: result.confidence,
         currentPageTitle: (result as any).currentPage || '',
         pageUrl: result.expectedNextPage || '',
-        completedSteps: newSteps,
+        completedSteps: mergedSteps,
+        privatePolling: false,
       });
 
       if (result.highlightTarget) {
@@ -301,7 +320,7 @@ export const useSidebarStore = create<SidebarState>((set, get) => ({
       }
     } catch (err) {
       console.error('[WebGuider] analyzeCurrentPage error:', err);
-      set({ explorerStatus: 'error', currentInstruction: 'Analysis failed unexpectedly.', aiReasoning: String(err), confidence: 0 });
+      set({ explorerStatus: 'error', currentInstruction: 'Analysis failed unexpectedly.', aiReasoning: String(err), confidence: 0, privatePolling: false });
     }
   },
 
@@ -323,6 +342,7 @@ export const useSidebarStore = create<SidebarState>((set, get) => ({
       highlightTarget: null,
       highlightConfirmed: false,
       successMessage: '',
+      suggestion: null,
       exploreSteps: [],
       currentStepIndex: 0,
       exploreChatOpen: false,

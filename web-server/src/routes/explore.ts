@@ -1,5 +1,5 @@
 import { FastifyInstance } from 'fastify';
-import { generateExploreSteps, exploreChat, type ExploreStepsResult } from '../services/ai.js';
+import { generateExploreSteps, exploreChat, generateSuggestion, type ExploreStepsResult } from '../services/ai.js';
 import type { ExploreSession, ExploreStep, PageContext, ExploreChatRequest } from '../types/index.js';
 
 const sessions = new Map<string, ExploreSession>();
@@ -124,7 +124,7 @@ export async function exploreRoutes(app: FastifyInstance) {
       return reply.send({
         steps: result.steps,
         summary: result.summary,
-        completed: result.steps.length === 0,
+        completed: result.completed,
         url,
         goal,
       });
@@ -149,6 +149,23 @@ export async function exploreRoutes(app: FastifyInstance) {
     } catch (error) {
       request.log.error({ err: error, goal }, 'Explore chat failed');
       return reply.status(500).send({ error: error instanceof Error ? error.message : 'Chat failed' });
+    }
+  });
+
+  app.post('/api/explore/suggest', async (request, reply) => {
+    const { goal, url, pageContext, recentActivity, currentSteps } = request.body as {
+      goal: string; url: string; pageContext?: PageContext;
+      recentActivity: Array<{ type: string; target?: string; value?: string }>;
+      currentSteps: ExploreStep[];
+    };
+
+    try {
+      request.log.info({ goal, activityCount: recentActivity?.length }, 'Suggestion requested');
+      const suggestion = await generateSuggestion(goal, url, pageContext, recentActivity || [], currentSteps || [], request.log);
+      return reply.send({ suggestion });
+    } catch (error) {
+      request.log.error({ err: error, goal }, 'Suggestion generation failed');
+      return reply.status(500).send({ error: error instanceof Error ? error.message : 'Suggestion failed' });
     }
   });
 }

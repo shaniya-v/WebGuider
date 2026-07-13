@@ -13,8 +13,8 @@ export const config = {
 
   ai: {
     apiKey: process.env.AI_API_KEY || '',
-    baseUrl: process.env.AI_BASE_URL || 'https://api.x.ai/v1',
-    defaultModel: process.env.AI_MODEL || 'grok-4.5',
-    exploreModel: process.env.AI_EXPLORE_MODEL || 'grok-build-0.1',
+    baseUrl: process.env.AI_BASE_URL || 'https://api.groq.com/openai/v1',
+    defaultModel: process.env.AI_MODEL || 'llama-3.3-70b-versatile',
+    exploreModel: process.env.AI_EXPLORE_MODEL || 'llama-3.1-8b-instant',
   },
 };
