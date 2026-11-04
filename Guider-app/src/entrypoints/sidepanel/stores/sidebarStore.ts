@@ -230,7 +230,6 @@ export const useSidebarStore = create<SidebarState>((set, get) => ({
     }
   },
 
-  privatePolling: false,
   analyzeCurrentPage: async () => {
     const { goal, explorerStatus, exploreSteps: oldSteps, privatePolling } = get();
     if (privatePolling || explorerStatus === 'completed') return;
@@ -354,10 +353,39 @@ export const useSidebarStore = create<SidebarState>((set, get) => ({
   },
 
   triggerHighlight: async () => {
-    const { highlightTarget, goal } = get();
+    const { highlightTarget, goal, currentInstruction, exploreSteps, currentStepIndex } = get();
+    const step = exploreSteps?.[currentStepIndex];
+    const stepNumber = currentStepIndex + 1;
+    const stepTotal = exploreSteps?.length || 0;
+
+    const msgBase = {
+      instruction: step?.instruction || currentInstruction,
+      stepNumber,
+      stepTotal,
+    };
+
+    // Prefer CSS selector-based highlighting (more reliable than text search)
+    if (step?.selector && step.selector !== 'body') {
+      try {
+        const result = await browser.runtime.sendMessage({
+          ...msgBase,
+          type: 'HIGHLIGHT_SELECTOR',
+          selector: step.selector,
+        });
+        if (result?.success) {
+          set({ highlightConfirmed: true });
+          return;
+        }
+      } catch (err) {
+        console.warn('[WebGuider] Selector highlight failed, falling back to text search:', err);
+      }
+    }
+
+    // Fallback to text-based element search
     if (!highlightTarget) return;
     try {
       const result: ConfirmHighlightResult = await browser.runtime.sendMessage({
+        ...msgBase,
         type: 'FIND_AND_HIGHLIGHT',
         target: highlightTarget,
       });

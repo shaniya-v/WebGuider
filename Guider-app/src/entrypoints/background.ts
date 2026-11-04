@@ -116,6 +116,15 @@ function buildRichResponseFromAISteps(steps: any[], goal: string, pageData: any,
   }
 
   const firstStep = steps[0];
+
+  const hasRealSelector = firstStep.selector && firstStep.selector !== 'body';
+  const highlightText = firstStep.instruction
+    .replace(/\*\*(.+?)\*\*/g, '$1')
+    .replace(/^Click (the|on) /i, '')
+    .replace(/^Fill (in|out) /i, '')
+    .replace(/^Enter /i, '')
+    .split(' ').slice(0, 6).join(' ');
+
   return {
     pageSummary: summary || `You're on **${pageData.title || pageData.domain}** — I found a path for "${goal}"`,
     currentStage: firstStep.action === 'input' ? 'Fill Form' : firstStep.action === 'click' ? 'Click' : 'Navigate',
@@ -130,8 +139,8 @@ function buildRichResponseFromAISteps(steps: any[], goal: string, pageData: any,
       value: s.value,
       optional: s.optional,
     })),
-    highlightTarget: firstStep.selector
-      ? { text: firstStep.instruction.split(' ').slice(0, 4).join(' '), role: firstStep.action === 'input' ? 'textbox' : 'button', elementType: firstStep.action === 'input' ? 'input' : 'button', confidence: 90 }
+    highlightTarget: hasRealSelector
+      ? { text: highlightText, role: firstStep.action === 'input' ? 'textbox' : 'button', elementType: firstStep.action === 'input' ? 'input' : 'button', confidence: 90 }
       : null,
     highlightConfirmed: false,
     expectedNextPage: pageData.url,
@@ -428,10 +437,13 @@ export default defineBackground({
           state.currentStepIndex = 0;
           state.currentTabId = sender.tab?.id || null;
 
-          if (state.currentTabId) {
+          if (state.currentTabId && state.currentSteps.length > 0) {
+            const firstStep = state.currentSteps[0];
             sendToContent(state.currentTabId, {
-              type: 'START_GUIDE',
-              steps: state.currentSteps,
+              type: 'HIGHLIGHT_STEP',
+              step: firstStep,
+              stepNumber: 1,
+              stepTotal: state.currentSteps.length,
             });
           }
           sendResponse({ success: true });
@@ -442,9 +454,12 @@ export default defineBackground({
           if (state.currentStepIndex < state.currentSteps.length - 1) {
             state.currentStepIndex++;
             if (state.currentTabId) {
+              const step = state.currentSteps[state.currentStepIndex];
               sendToContent(state.currentTabId, {
                 type: 'HIGHLIGHT_STEP',
-                step: state.currentSteps[state.currentStepIndex],
+                step: { ...step, instruction: step.instruction },
+                stepNumber: state.currentStepIndex + 1,
+                stepTotal: state.currentSteps.length,
               });
             }
           } else {
@@ -461,9 +476,12 @@ export default defineBackground({
           if (state.currentStepIndex > 0) {
             state.currentStepIndex--;
             if (state.currentTabId) {
+              const step = state.currentSteps[state.currentStepIndex];
               sendToContent(state.currentTabId, {
                 type: 'HIGHLIGHT_STEP',
-                step: state.currentSteps[state.currentStepIndex],
+                step: { ...step, instruction: step.instruction },
+                stepNumber: state.currentStepIndex + 1,
+                stepTotal: state.currentSteps.length,
               });
             }
           }
@@ -502,7 +520,7 @@ export default defineBackground({
           (async () => {
             const tabId = sender.tab?.id || state.currentTabId;
             if (tabId) {
-              await sendToContent(tabId, { type: 'HIGHLIGHT_SELECTOR', selector: message.selector });
+              await sendToContent(tabId, { type: 'HIGHLIGHT_SELECTOR', selector: message.selector, instruction: message.instruction });
             }
             sendResponse({ success: true });
           })();

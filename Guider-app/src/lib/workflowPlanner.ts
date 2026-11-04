@@ -249,8 +249,12 @@ const createIssueWorkflow: Workflow = {
             summary: `You're in the **${state.domain}** repository — let's open the Issues tab.`,
           };
         }
+        const anyTabNav = state.availableTargets.find(t => /tab|nav/i.test(t.text) || t.elementType === 'tab');
+        const fallbackTarget: HighlightTarget | null = anyTabNav
+          ? { text: anyTabNav.text, role: 'tab', elementType: 'tab', confidence: 50 }
+          : null;
         return {
-          highlightTarget: null,
+          highlightTarget: fallbackTarget,
           instruction: `Look for the **Issues** tab near the top of the repository page and click it.`,
           details: [
             `The Issues tab is usually in the navigation bar below the repository name.`,
@@ -442,8 +446,15 @@ const bookCheckoutWorkflow: Workflow = {
         }
         details.push(`After your order is placed, I'll automatically confirm it for you.`);
 
+        const firstField = inputs[0];
+        const highlightTarget: HighlightTarget | null = firstField
+          ? { text: firstField.placeholder || firstField.label || firstField.name || 'checkout field', role: 'textbox', elementType: 'input', confidence: 75 }
+          : payBtn
+          ? { text: payBtn.text, role: 'button', elementType: 'button', confidence: 80 }
+          : null;
+
         return {
-          highlightTarget: null,
+          highlightTarget,
           instruction: `Let's complete your order on **${state.domain}**. Fill in the required information and confirm your purchase.`,
           details,
           summary: `You're on the checkout page for **${state.domain}** — let's complete your order.`,
@@ -594,8 +605,15 @@ const settingsWorkflow: Workflow = {
           details.push(`Look for a **Save** or **Update** button to apply your changes.`);
         }
 
+        const firstField = inputs[0];
+        const highlightTarget: HighlightTarget | null = firstField
+          ? { text: firstField.placeholder || firstField.label || firstField.name || 'setting', role: 'textbox', elementType: 'input', confidence: 70 }
+          : saveBtn
+          ? { text: saveBtn.text, role: 'button', elementType: 'button', confidence: 70 }
+          : null;
+
         return {
-          highlightTarget: null,
+          highlightTarget,
           instruction: `You can update your settings here on **${state.domain}**. Make the changes you need and save them.`,
           details,
           summary: `You're on the settings page for **${state.domain}** — make your changes here.`,

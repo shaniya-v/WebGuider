@@ -610,12 +610,38 @@ export default defineContentScript({
       style.id = HIGHLIGHT_STYLE_ID;
       style.textContent = `
         @keyframes wg-glow-pulse {
-          0%, 100% { box-shadow: 0 0 5px rgba(99,102,241,0.4), 0 0 10px rgba(99,102,241,0.2); }
-          50% { box-shadow: 0 0 15px rgba(99,102,241,0.8), 0 0 30px rgba(99,102,241,0.4), 0 0 45px rgba(99,102,241,0.2); }
+          0%, 100% { box-shadow: 0 0 8px rgba(99,102,241,0.5), 0 0 15px rgba(99,102,241,0.2); }
+          50% { box-shadow: 0 0 20px rgba(99,102,241,0.9), 0 0 40px rgba(99,102,241,0.5), 0 0 60px rgba(99,102,241,0.2); }
         }
         @keyframes wg-bounce-arrow {
           0%, 100% { transform: translateY(0); }
-          50% { transform: translateY(-6px); }
+          50% { transform: translateY(-8px); }
+        }
+        @keyframes wg-pulse-ring {
+          0% { transform: scale(1); opacity: 0.7; }
+          100% { transform: scale(2.5); opacity: 0; }
+        }
+        .wg-spotlight {
+          position: fixed !important;
+          inset: 0 !important;
+          z-index: 2147483644 !important;
+          pointer-events: none !important;
+          transition: all 0.3s ease !important;
+        }
+        .wg-spotlight-hole {
+          position: absolute !important;
+          border-radius: 8px !important;
+          box-shadow: 0 0 0 9999px rgba(0,0,0,0.35) !important;
+          transition: all 0.3s ease !important;
+        }
+        .wg-spotlight-hole::after {
+          content: '' !important;
+          position: absolute !important;
+          inset: -8px !important;
+          border-radius: 14px !important;
+          border: 3px solid rgba(99,102,241,0.3) !important;
+          animation: wg-glow-pulse 2s ease-in-out infinite !important;
+          pointer-events: none !important;
         }
         .wg-highlight-overlay {
           position: fixed !important;
@@ -627,15 +653,24 @@ export default defineContentScript({
           transition: all 0.15s ease !important;
           background: rgba(99,102,241,0.08) !important;
         }
+        .wg-pulse-ring {
+          position: fixed !important;
+          pointer-events: none !important;
+          z-index: 2147483645 !important;
+          border: 3px solid #818cf8 !important;
+          border-radius: 12px !important;
+          animation: wg-pulse-ring 2s ease-out infinite !important;
+        }
         .wg-highlight-arrow {
           position: fixed !important;
           z-index: 2147483647 !important;
           pointer-events: none !important;
-          animation: wg-bounce-arrow 1s ease-in-out infinite !important;
-          color: #6366f1 !important;
-          font-size: 28px !important;
+          animation: wg-bounce-arrow 0.8s ease-in-out infinite !important;
+          color: #4f46e5 !important;
+          font-size: 30px !important;
           line-height: 1 !important;
-          text-shadow: 0 2px 8px rgba(99,102,241,0.5) !important;
+          text-shadow: 0 2px 12px rgba(79,70,229,0.6) !important;
+          filter: drop-shadow(0 0 6px rgba(99,102,241,0.5)) !important;
         }
         .wg-highlight-tooltip {
           position: fixed !important;
@@ -645,20 +680,98 @@ export default defineContentScript({
           color: white !important;
           font-size: 12px !important;
           font-weight: 600 !important;
-          padding: 4px 12px !important;
-          border-radius: 6px !important;
-          box-shadow: 0 4px 12px rgba(79,70,229,0.4) !important;
-          white-space: nowrap !important;
+          padding: 6px 14px !important;
+          border-radius: 8px !important;
+          box-shadow: 0 4px 16px rgba(79,70,229,0.5), 0 0 0 1px rgba(255,255,255,0.1) !important;
+          text-align: center !important;
+          line-height: 1.3 !important;
           font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif !important;
+          word-wrap: break-word !important;
         }
         .wg-highlight-tooltip::after {
           content: '' !important;
           position: absolute !important;
           top: 100% !important;
           left: 50% !important;
-          margin-left: -5px !important;
-          border: 5px solid transparent !important;
+          margin-left: -6px !important;
+          border: 6px solid transparent !important;
           border-top-color: #4f46e5 !important;
+        }
+        .wg-step-badge {
+          position: fixed !important;
+          z-index: 2147483647 !important;
+          pointer-events: none !important;
+          background: #4f46e5 !important;
+          color: white !important;
+          font-size: 11px !important;
+          font-weight: 700 !important;
+          padding: 2px 8px !important;
+          border-radius: 10px !important;
+          box-shadow: 0 2px 8px rgba(79,70,229,0.4) !important;
+          font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif !important;
+          display: flex !important;
+          align-items: center !important;
+          gap: 4px !important;
+        }
+        .wg-step-indicator {
+          position: fixed !important;
+          bottom: 20px !important;
+          left: 50% !important;
+          transform: translateX(-50%) !important;
+          z-index: 2147483647 !important;
+          pointer-events: none !important;
+          animation: wg-fade-in 0.3s ease !important;
+        }
+        @keyframes wg-fade-in {
+          from { opacity: 0; transform: translateX(-50%) translateY(10px); }
+          to { opacity: 1; transform: translateX(-50%) translateY(0); }
+        }
+        .wg-step-indicator-inner {
+          background: #1e1b4b !important;
+          color: white !important;
+          padding: 12px 20px !important;
+          border-radius: 14px !important;
+          box-shadow: 0 8px 32px rgba(0,0,0,0.3), 0 0 0 1px rgba(255,255,255,0.1) !important;
+          font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif !important;
+          max-width: 90vw !important;
+          width: 400px !important;
+        }
+        .wg-step-indicator-header {
+          display: flex !important;
+          justify-content: space-between !important;
+          align-items: center !important;
+          margin-bottom: 8px !important;
+        }
+        .wg-step-indicator-count {
+          font-size: 11px !important;
+          font-weight: 600 !important;
+          color: #a5b4fc !important;
+          text-transform: uppercase !important;
+          letter-spacing: 0.5px !important;
+        }
+        .wg-step-indicator-progress {
+          display: flex !important;
+          gap: 6px !important;
+          margin-bottom: 8px !important;
+        }
+        .wg-step-indicator-dot {
+          flex: 1 !important;
+          height: 4px !important;
+          border-radius: 2px !important;
+          background: rgba(255,255,255,0.15) !important;
+          transition: all 0.3s ease !important;
+        }
+        .wg-step-indicator-dot.active {
+          background: #818cf8 !important;
+          box-shadow: 0 0 6px rgba(129,140,248,0.5) !important;
+        }
+        .wg-step-indicator-dot.completed {
+          background: #34d399 !important;
+        }
+        .wg-step-indicator-text {
+          font-size: 13px !important;
+          line-height: 1.4 !important;
+          color: #e0e7ff !important;
         }
       `;
       document.head.appendChild(style);
@@ -684,18 +797,47 @@ export default defineContentScript({
         highlightPositionUpdater();
         highlightPositionUpdater = null;
       }
-      document.querySelectorAll('.wg-highlight-overlay, .wg-highlight-arrow, .wg-highlight-tooltip').forEach((el) => el.remove());
+      document.querySelectorAll('.wg-highlight-overlay, .wg-highlight-arrow, .wg-highlight-tooltip, .wg-spotlight, .wg-pulse-ring, .wg-step-badge, .wg-step-indicator').forEach((el) => el.remove());
     }
 
-    function showSmartHighlight(element: HTMLElement) {
+    let currentStepNumber = 0;
+    let currentStepTotal = 0;
+
+    function showStepIndicator(step: number, total: number, instruction: string) {
+      clearStepIndicator();
+      currentStepNumber = step;
+      currentStepTotal = total;
+      injectHighlightStyles();
+
+      const indicator = document.createElement('div');
+      indicator.className = 'wg-step-indicator';
+      indicator.innerHTML = `
+        <div class="wg-step-indicator-inner">
+          <div class="wg-step-indicator-header">
+            <span class="wg-step-indicator-count">Step ${step} of ${total}</span>
+          </div>
+          <div class="wg-step-indicator-progress">
+            ${Array.from({ length: total }, (_, i) => `<div class="wg-step-indicator-dot ${i < step ? 'completed' : i === step - 1 ? 'active' : ''}"></div>`).join('')}
+          </div>
+          <div class="wg-step-indicator-text">${instruction}</div>
+        </div>
+      `;
+      document.body.appendChild(indicator);
+    }
+
+    function clearStepIndicator() {
+      document.querySelectorAll('.wg-step-indicator').forEach(el => el.remove());
+    }
+
+function showSmartHighlight(element: HTMLElement, instruction?: string) {
       clearHighlights();
       injectHighlightStyles();
 
       currentHighlightElement = element;
-      element.style.outline = '3px solid #6366f1';
+      element.style.outline = '3px solid #818cf8';
       element.style.outlineOffset = '2px';
       element.style.position = 'relative';
-      element.style.zIndex = '2147483645';
+      element.style.zIndex = '2147483647';
 
       element.scrollIntoView({ behavior: 'smooth', block: 'center' });
 
@@ -703,6 +845,28 @@ export default defineContentScript({
       const scrollX = window.scrollX || window.pageXOffset;
       const scrollY = window.scrollY || window.pageYOffset;
 
+      // Spotlight backdrop with cutout
+      const spotlight = document.createElement('div');
+      spotlight.className = 'wg-spotlight';
+      const cutout = document.createElement('div');
+      cutout.className = 'wg-spotlight-hole';
+      cutout.style.top = `${rect.top}px`;
+      cutout.style.left = `${rect.left}px`;
+      cutout.style.width = `${rect.width}px`;
+      cutout.style.height = `${rect.height}px`;
+      spotlight.appendChild(cutout);
+      document.body.appendChild(spotlight);
+
+      // Expanding pulse ring
+      const pulseRing = document.createElement('div');
+      pulseRing.className = 'wg-pulse-ring';
+      pulseRing.style.top = `${rect.top + window.scrollY - 8}px`;
+      pulseRing.style.left = `${rect.left + window.scrollX - 8}px`;
+      pulseRing.style.width = `${rect.width + 16}px`;
+      pulseRing.style.height = `${rect.height + 16}px`;
+      document.body.appendChild(pulseRing);
+
+      // Glow highlight overlay
       const overlay = document.createElement('div');
       overlay.className = 'wg-highlight-overlay';
       overlay.style.top = `${rect.top + scrollY - 4}px`;
@@ -711,30 +875,53 @@ export default defineContentScript({
       overlay.style.height = `${rect.height + 8}px`;
       document.body.appendChild(overlay);
 
+      // Step number badge
+      const badge = document.createElement('div');
+      badge.className = 'wg-step-badge';
+      badge.textContent = '📍 Next';
+      badge.style.top = `${rect.top + scrollY - 24}px`;
+      badge.style.left = `${rect.left + scrollX + rect.width / 2}px`;
+      document.body.appendChild(badge);
+
+      // Bouncing arrow indicator
       const arrow = document.createElement('div');
       arrow.className = 'wg-highlight-arrow';
       arrow.textContent = '👆';
-      arrow.style.top = `${rect.top + scrollY - 40}px`;
-      arrow.style.left = `${rect.left + scrollX + rect.width / 2 - 14}px`;
+      arrow.style.top = `${rect.top + scrollY - 44}px`;
+      arrow.style.left = `${rect.left + scrollX + rect.width / 2 - 15}px`;
       document.body.appendChild(arrow);
 
+      // Instruction tooltip (shows what to do, not just "Next Step")
+      const tooltipText = instruction || 'Click here';
       const tooltip = document.createElement('div');
       tooltip.className = 'wg-highlight-tooltip';
-      tooltip.textContent = 'Next Step';
-      tooltip.style.top = `${rect.top + scrollY - 70}px`;
-      tooltip.style.left = `${rect.left + scrollX + rect.width / 2 - 35}px`;
+      tooltip.textContent = tooltipText.length > 80 ? tooltipText.slice(0, 77) + '...' : tooltipText;
+      const tooltipW = Math.min(Math.max(rect.width + 20, 120), 340);
+      tooltip.style.maxWidth = `${tooltipW}px`;
+      tooltip.style.top = `${rect.top + scrollY - 80}px`;
+      tooltip.style.left = `${rect.left + scrollX + rect.width / 2 - tooltipW / 2}px`;
       document.body.appendChild(tooltip);
 
       const updatePositions = () => {
         const r = element.getBoundingClientRect();
+        cutout.style.top = `${r.top}px`;
+        cutout.style.left = `${r.left}px`;
+        cutout.style.width = `${r.width}px`;
+        cutout.style.height = `${r.height}px`;
         overlay.style.top = `${r.top + window.scrollY - 4}px`;
         overlay.style.left = `${r.left + window.scrollX - 4}px`;
         overlay.style.width = `${r.width + 8}px`;
         overlay.style.height = `${r.height + 8}px`;
-        arrow.style.top = `${r.top + window.scrollY - 40}px`;
-        arrow.style.left = `${r.left + window.scrollX + r.width / 2 - 14}px`;
-        tooltip.style.top = `${r.top + window.scrollY - 70}px`;
-        tooltip.style.left = `${r.left + window.scrollX + r.width / 2 - 35}px`;
+        pulseRing.style.top = `${r.top + window.scrollY - 8}px`;
+        pulseRing.style.left = `${r.left + window.scrollX - 8}px`;
+        pulseRing.style.width = `${r.width + 16}px`;
+        pulseRing.style.height = `${r.height + 16}px`;
+        arrow.style.top = `${r.top + window.scrollY - 44}px`;
+        arrow.style.left = `${r.left + window.scrollX + r.width / 2 - 15}px`;
+        badge.style.top = `${r.top + window.scrollY - 24}px`;
+        badge.style.left = `${r.left + window.scrollX + r.width / 2}px`;
+        tooltip.style.top = `${r.top + window.scrollY - 80}px`;
+        tooltip.style.left = `${r.left + window.scrollX + r.width / 2 - tooltipW / 2}px`;
       };
 
       window.addEventListener('scroll', updatePositions, { passive: true });
@@ -770,8 +957,7 @@ export default defineContentScript({
         console.warn(`[WebGuider] Could not find element matching "${target.text}" — best candidate confidence ${result.confidence} (${result.strategy}) below threshold`);
         return { success: false, error: `Could not reliably find "${target.text}" on the page (confidence too low: ${result.confidence}%).` };
       }
-      showSmartHighlight(result.element);
-      console.log(`[WebGuider] Highlighted "${target.text}" → found via ${result.strategy} (confidence: ${result.confidence}%)`);
+      console.log(`[WebGuider] Found "${target.text}" → via ${result.strategy} (confidence: ${result.confidence}%)`);
       return { success: true, selector: result.selector, confidence: result.confidence };
     }
 
@@ -845,7 +1031,10 @@ export default defineContentScript({
         case 'HIGHLIGHT_STEP':
           if (message.step?.selector) {
             const el = document.querySelector(message.step.selector) as HTMLElement;
-            if (el) showSmartHighlight(el);
+            if (el) showSmartHighlight(el, message.step.instruction);
+          }
+          if (message.stepNumber && message.stepTotal) {
+            showStepIndicator(message.stepNumber, message.stepTotal, message.step?.instruction || '');
           }
           sendResponse({ success: true });
           break;
@@ -853,7 +1042,10 @@ export default defineContentScript({
           if (message.selector) {
             const el = document.querySelector(message.selector) as HTMLElement;
             if (el) {
-              showSmartHighlight(el);
+              showSmartHighlight(el, message.instruction);
+              if (message.stepNumber && message.stepTotal) {
+                showStepIndicator(message.stepNumber, message.stepTotal, message.instruction || '');
+              }
               sendResponse({ success: true });
             } else {
               sendResponse({ success: false, error: 'Selector did not match any element' });
@@ -865,7 +1057,16 @@ export default defineContentScript({
         case 'FIND_AND_HIGHLIGHT':
           if (message.target) {
             const hlResult = handleHighlightWithRetry(message.target as HighlightTarget);
-            sendResponse(hlResult);
+            if (hlResult.success && hlResult.selector) {
+              const el = document.querySelector(hlResult.selector) as HTMLElement;
+              if (el) {
+                showSmartHighlight(el, message.instruction);
+                if (message.stepNumber && message.stepTotal) {
+                  showStepIndicator(message.stepNumber, message.stepTotal, message.instruction || '');
+                }
+              }
+            }
+            sendResponse({ ...hlResult, instruction: message.instruction });
           } else {
             sendResponse({ success: false, error: 'No target provided' });
           }
